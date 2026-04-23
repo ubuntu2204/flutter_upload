@@ -1,0 +1,27 @@
+{
+  "_comment": "复制此文件为 ftp_config.json 并填写真实配置，ftp_config.json 已被 .gitignore 忽略",
+
+  "_comment_host": "FTP 服务器地址，支持 IP 或域名",
+  "host": "192.168.1.1",
+
+  "_comment_port": "FTP 端口，默认 21",
+  "port": 21,
+
+  "_comment_user": "FTP 登录用户名",
+  "user": "",
+
+  "_comment_pass": "FTP 登录密码",
+  "pass": "",
+
+  "_comment_frontendPath": "前端项目本地路径，支持 ~/ 开头的路径",
+  "frontendPath": "~/project/frontend",
+
+  "_comment_frontendDir": "前端部署到 FTP 服务器上的目录名",
+  "frontendDir": "www.example.com",
+
+  "_comment_backendPath": "后端项目本地路径，支持 ~/ 开头的路径",
+  "backendPath": "~/project/backend",
+
+  "_comment_backendDir": "后端可执行文件部署到 FTP 服务器上的目录名",
+  "backendDir": "api.example.com/bin"
+}
