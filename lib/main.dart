@@ -87,11 +87,16 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _ftpBackendDirController = TextEditingController();
     _frontendPathController = TextEditingController();
     _backendPathController = TextEditingController();
-    _loadFtpConfig();
-    _checkConnectivity();
-    // 每 5 秒自动检测一次联通性
-    _timer =
-        Timer.periodic(const Duration(seconds: 5), (_) => _checkConnectivity());
+    // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _loadFtpConfig();
+      if (!mounted) return;
+      if (_ftpHost.isNotEmpty) _checkConnectivity();
+      // 配置加载完成后再启动定时检测，且仅在 host 非空时才 ping
+      _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+        if (_ftpHost.isNotEmpty) _checkConnectivity();
+      });
+    });
   }
 
   @override
