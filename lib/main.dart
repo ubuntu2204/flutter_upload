@@ -6,7 +6,18 @@ import 'package:flutter/services.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'config.dart';
 
-void main() {
+void main(List<String> args) {
+  // 支持 --config=<path> 或 --config <path> 指定配置文件路径
+  for (int i = 0; i < args.length; i++) {
+    final arg = args[i];
+    if (arg.startsWith('--config=')) {
+      AppConfig.ftpConfigPath = arg.substring('--config='.length);
+      break;
+    } else if (arg == '--config' && i + 1 < args.length) {
+      AppConfig.ftpConfigPath = args[i + 1];
+      break;
+    }
+  }
   runApp(const MyApp());
 }
 
