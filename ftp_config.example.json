@@ -23,5 +23,11 @@
   "backendPath": "~/project/backend",
 
   "_comment_backendDir": "后端可执行文件部署到 FTP 服务器上的目录名",
-  "backendDir": "api.example.com/bin"
+  "backendDir": "api.example.com/bin",
+
+  "_comment_sshUser": "SSH 登录用户名（用于上传后远程重启服务，需配置免密登录；若与 FTP 用户名相同可省略）",
+  "sshUser": "example",
+
+  "_comment_serverStartCmd": "远程服务器上启动后端的命令，上传完成后会先 pkill 旧进程再执行此命令",
+  "serverStartCmd": "cd /srv/api.example.com/bin && ./server"
 }
