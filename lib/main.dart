@@ -57,6 +57,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _ftpBackendDirController;
   late final TextEditingController _frontendPathController;
   late final TextEditingController _backendPathController;
+  late final TextEditingController _sshUserController;
+  late final TextEditingController _serverStartCmdController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -68,6 +70,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       _ftpBackendDirController.text.trim().replaceAll('\\', '/');
   String get _frontendPath => _expandHome(_frontendPathController.text.trim());
   String get _backendPath => _expandHome(_backendPathController.text.trim());
+  String get _sshUser => _sshUserController.text.trim();
+  String get _serverStartCmd => _serverStartCmdController.text.trim();
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -87,6 +91,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _ftpBackendDirController = TextEditingController();
     _frontendPathController = TextEditingController();
     _backendPathController = TextEditingController();
+    _sshUserController = TextEditingController();
+    _serverStartCmdController = TextEditingController();
     // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
@@ -110,6 +116,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _ftpBackendDirController.dispose();
     _frontendPathController.dispose();
     _backendPathController.dispose();
+    _sshUserController.dispose();
+    _serverStartCmdController.dispose();
     super.dispose();
   }
 
@@ -206,6 +214,12 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (frontendPath.isNotEmpty) _frontendPathController.text = frontendPath;
       if (backendPath.isNotEmpty) _backendPathController.text = backendPath;
 
+      final sshUser = (decoded['sshUser'] ?? '').toString();
+      final serverStartCmd = (decoded['serverStartCmd'] ?? '').toString();
+      if (sshUser.isNotEmpty) _sshUserController.text = sshUser;
+      if (serverStartCmd.isNotEmpty)
+        _serverStartCmdController.text = serverStartCmd;
+
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -230,6 +244,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'frontendDir': _ftpFrontendDirController.text.trim(),
       'backendPath': _backendPathController.text.trim(),
       'backendDir': _ftpBackendDirController.text.trim(),
+      'sshUser': _sshUserController.text.trim(),
+      'serverStartCmd': _serverStartCmdController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -492,6 +508,44 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
+  /// 通过 SSH（密钥认证）在远程服务器执行命令
+  Future<bool> _sshRunCmd(String remoteCmd, String desc) async {
+    final user = _sshUser.isNotEmpty ? _sshUser : _ftpUser;
+    final startTime = DateTime.now().toString().split('.').first;
+    _addLog("----------------------------------------\n"
+        "开始: $startTime\n"
+        "任务: $desc\n"
+        "命令: ssh $user@$_ftpHost '$remoteCmd'\n");
+    try {
+      final result = await Process.run(
+        'ssh',
+        [
+          '-o',
+          'StrictHostKeyChecking=no',
+          '-o',
+          'BatchMode=yes',
+          '-o',
+          'ConnectTimeout=10',
+          '$user@$_ftpHost',
+          remoteCmd,
+        ],
+      );
+      String resultLog =
+          "结果: ${result.exitCode == 0 ? '成功' : '失败'} (退出码: ${result.exitCode})\n";
+      if (result.stdout.toString().trim().isNotEmpty) {
+        resultLog += "标准输出:\n${result.stdout}\n";
+      }
+      if (result.stderr.toString().trim().isNotEmpty) {
+        resultLog += "标准错误:\n${result.stderr}\n";
+      }
+      _addLog(resultLog);
+      return result.exitCode == 0;
+    } catch (e) {
+      _addLog("异常发生: $e\n");
+      return false;
+    }
+  }
+
   // 功能 2：打包并上传后端
   Future<void> _handleBackend() async {
     setState(() => _isProcessing = true);
@@ -530,6 +584,16 @@ class _UploadHomePageState extends State<UploadHomePage> {
           } catch (e) {
             _addLog("设置可执行权限失败: $e\n");
           }
+
+          // 关闭旧 server 进程，再启动新 server
+          await _sshRunCmd('pkill -x server; true', "SSH 关闭旧 server 进程");
+          if (_serverStartCmd.isNotEmpty) {
+            await _sshRunCmd(
+              'nohup bash -c "${_serverStartCmd}" >/tmp/server.log 2>&1 </dev/null &',
+              "SSH 启动新 server",
+            );
+          }
+
           _addLog("后端部署完成！\n");
         }
       } finally {
@@ -621,6 +685,14 @@ class _UploadHomePageState extends State<UploadHomePage> {
                 TextField(
                   controller: _ftpBackendDirController,
                   decoration: const InputDecoration(labelText: '后端远程目录'),
+                ),
+                TextField(
+                  controller: _sshUserController,
+                  decoration: const InputDecoration(labelText: 'SSH 用户名'),
+                ),
+                TextField(
+                  controller: _serverStartCmdController,
+                  decoration: const InputDecoration(labelText: '后端启动命令（远程）'),
                 ),
                 const SizedBox(height: 12),
                 Align(
