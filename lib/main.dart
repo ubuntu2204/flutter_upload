@@ -59,6 +59,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _backendPathController;
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
+  late final TextEditingController _mobilePathController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -72,6 +73,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _backendPath => _expandHome(_backendPathController.text.trim());
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
+  String get _mobilePath => _expandHome(_mobilePathController.text.trim());
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -93,6 +95,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _backendPathController = TextEditingController();
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
+    _mobilePathController = TextEditingController();
     // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
@@ -118,6 +121,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _backendPathController.dispose();
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
+    _mobilePathController.dispose();
     super.dispose();
   }
 
@@ -216,9 +220,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
 
       final sshUser = (decoded['sshUser'] ?? '').toString();
       final serverStartCmd = (decoded['serverStartCmd'] ?? '').toString();
+      final mobilePath = (decoded['mobilePath'] ?? '').toString();
       if (sshUser.isNotEmpty) _sshUserController.text = sshUser;
       if (serverStartCmd.isNotEmpty)
         _serverStartCmdController.text = serverStartCmd;
+      if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
 
       _addLog(
         "已加载配置文件: ${file.path}\n"
@@ -246,6 +252,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'backendDir': _ftpBackendDirController.text.trim(),
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
+      'mobilePath': _mobilePathController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -546,6 +553,97 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
+  // 功能 3：打包并部署到移动设备
+  Future<void> _handleMobile() async {
+    setState(() => _isProcessing = true);
+    _addLog("--- 开始移动端部署流程 ---");
+
+    // 1. 检查 adb 是否可用
+    final adbCheck = await Process.run('adb', ['devices'], runInShell: true);
+    if (adbCheck.exitCode != 0) {
+      _addLog("adb 不可用，请确保已安装 Android SDK 并配置好 PATH\n");
+      setState(() => _isProcessing = false);
+      return;
+    }
+    final adbOutput = adbCheck.stdout.toString();
+    final deviceLines = adbOutput
+        .split('\n')
+        .skip(1)
+        .where((l) => l.trim().isNotEmpty && !l.startsWith('*'))
+        .toList();
+    if (deviceLines.isEmpty) {
+      _addLog("未检测到已连接的 USB 调试设备，请确保设备已连接并开启 USB 调试\n");
+      setState(() => _isProcessing = false);
+      return;
+    }
+    _addLog("检测到设备:\n${deviceLines.join('\n')}\n");
+
+    // 2. flutter build apk
+    final built = await _runCmd(
+        'flutter', ['build', 'apk'], _mobilePath, "Flutter APK 构建");
+    if (!built) {
+      setState(() => _isProcessing = false);
+      return;
+    }
+
+    // 3. adb install
+    final apkPath =
+        '$_mobilePath/build/app/outputs/flutter-apk/app-release.apk';
+    if (!await File(apkPath).exists()) {
+      _addLog("APK 文件未找到: $apkPath\n");
+      setState(() => _isProcessing = false);
+      return;
+    }
+    final installed = await _runCmd(
+        'adb', ['install', '-r', apkPath], _mobilePath, "ADB 安装 APK");
+    if (installed) {
+      _addLog("移动端部署完成！\n");
+    }
+
+    setState(() => _isProcessing = false);
+  }
+
+  // 功能 4：打包 APK 并重命名复制到 ~/音乐
+  Future<void> _handleMobileRename() async {
+    setState(() => _isProcessing = true);
+    _addLog("--- 开始打包重命名流程 ---");
+
+    final built = await _runCmd(
+        'flutter', ['build', 'apk'], _mobilePath, "Flutter APK 构建");
+    if (!built) {
+      setState(() => _isProcessing = false);
+      return;
+    }
+
+    final apkPath =
+        '$_mobilePath/build/app/outputs/flutter-apk/app-release.apk';
+    if (!await File(apkPath).exists()) {
+      _addLog("APK 文件未找到: $apkPath\n");
+      setState(() => _isProcessing = false);
+      return;
+    }
+
+    final now = DateTime.now();
+    final dateStr =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+    final home = Platform.environment['HOME'] ?? '';
+    final destDir = Directory('$home/音乐');
+    if (!await destDir.exists()) {
+      await destDir.create(recursive: true);
+    }
+    final destPath = '${destDir.path}/app-release-$dateStr.apk';
+
+    try {
+      await File(apkPath).copy(destPath);
+      _addLog("APK 已复制到: $destPath\n");
+      _addLog("打包重命名完成！\n");
+    } catch (e) {
+      _addLog("复制文件失败: $e\n");
+    }
+
+    setState(() => _isProcessing = false);
+  }
+
   // 功能 2：打包并上传后端
   Future<void> _handleBackend() async {
     setState(() => _isProcessing = true);
@@ -694,6 +792,10 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   controller: _serverStartCmdController,
                   decoration: const InputDecoration(labelText: '后端启动命令（远程）'),
                 ),
+                TextField(
+                  controller: _mobilePathController,
+                  decoration: const InputDecoration(labelText: '移动端本地路径'),
+                ),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,
@@ -729,6 +831,34 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     label: const Text("上传后端并赋权"),
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleMobile : null,
+                    icon: const Icon(Icons.phone_android),
+                    label: const Text("部署到移动设备"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleMobileRename : null,
+                    icon: const Icon(Icons.drive_file_rename_outline),
+                    label: const Text("打包重命名"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white),
                   ),
                 ),
               ],
