@@ -49,6 +49,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   bool _isProcessing = false;
   bool _backendStarted = false;
   bool _webStarted = false;
+  Process? _backendProcess;
+  Process? _webProcess;
   String _log = "等待操作...";
   Timer? _timer;
   late final TextEditingController _ftpHostController;
@@ -106,6 +108,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
+      await _detectRunningProcesses();
+      if (!mounted) return;
       if (_ftpHost.isNotEmpty) _checkConnectivity();
       // 配置加载完成后再启动定时检测，且仅在 host 非空时才 ping
       _timer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -130,7 +134,31 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _mobilePathController.dispose();
     _webStartCmdController.dispose();
     _webStopCmdController.dispose();
+    _backendProcess?.kill();
+    _webProcess?.kill();
     super.dispose();
+  }
+
+  /// 检测本地后端和 Web 进程是否已在运行
+  Future<void> _detectRunningProcesses() async {
+    try {
+      final backendResult = await Process.run(
+        'pgrep',
+        ['-f', 'maintenance/backend'],
+      );
+      final webResult = await Process.run(
+        'pgrep',
+        ['-f', 'maintenance/frontend'],
+      );
+      if (mounted) {
+        setState(() {
+          if (backendResult.exitCode == 0) _backendStarted = true;
+          if (webResult.exitCode == 0) _webStarted = true;
+        });
+        if (_backendStarted) _addLog("检测到后端进程已在运行\n");
+        if (_webStarted) _addLog("检测到 Web 进程已在运行\n");
+      }
+    } catch (_) {}
   }
 
   // 检测服务器联通性 (ping 192.168.77.2)
@@ -514,25 +542,54 @@ class _UploadHomePageState extends State<UploadHomePage> {
 
   // 功能：启动后端
   Future<void> _startBackend() async {
-    if (_serverStartCmd.isEmpty) {
-      _addLog("后端启动命令为空，请在设置中配置\n");
+    if (_backendProcess != null) {
+      _addLog("后端已在运行中\n");
       return;
     }
     setState(() => _isProcessing = true);
-    final ok = await _sshRunCmd(
-      'nohup bash -c "${_serverStartCmd}" >/tmp/server.log 2>&1 </dev/null &',
-      "SSH 启动后端",
-    );
-    setState(() {
-      _isProcessing = false;
-      if (ok) _backendStarted = true;
-    });
+    _addLog("--- 启动本地后端 ---");
+    final workingDir = _expandHome('~/project/maintenance/backend');
+    try {
+      _backendProcess = await Process.start(
+        'dart',
+        ['run', 'bin/server.dart'],
+        workingDirectory: workingDir,
+      );
+      _backendProcess!.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) => _addLog(data));
+      _backendProcess!.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) => _addLog(data));
+      _backendProcess!.exitCode.then((_) {
+        if (mounted) setState(() => _backendStarted = false);
+        _backendProcess = null;
+      });
+      _addLog("后端已启动 (PID: ${_backendProcess!.pid})\n");
+      setState(() {
+        _isProcessing = false;
+        _backendStarted = true;
+      });
+    } catch (e) {
+      _addLog("启动后端失败: $e\n");
+      _backendProcess = null;
+      setState(() => _isProcessing = false);
+    }
   }
 
   // 功能：停止后端
   Future<void> _stopBackend() async {
     setState(() => _isProcessing = true);
-    await _sshRunCmd('pkill -x server; true', "SSH 停止后端");
+    final pid = _backendProcess?.pid;
+    if (_backendProcess != null) {
+      _backendProcess!.kill(ProcessSignal.sigkill);
+      _backendProcess = null;
+    }
+    if (pid != null) {
+      await Process.run('pkill', ['-9', '-P', '$pid']);
+    }
+    await Process.run('pkill', ['-9', '-f', 'server.dart']);
+    _addLog("后端已停止\n");
     setState(() {
       _isProcessing = false;
       _backendStarted = false;
@@ -541,31 +598,51 @@ class _UploadHomePageState extends State<UploadHomePage> {
 
   // 功能：启动 Web
   Future<void> _startWeb() async {
-    final cmd = _webStartCmdController.text.trim();
-    if (cmd.isEmpty) {
-      _addLog("Web 启动命令为空，请在设置中配置\n");
+    if (_webProcess != null) {
+      _addLog("Web 已在运行中\n");
       return;
     }
     setState(() => _isProcessing = true);
-    final ok = await _sshRunCmd(
-      'nohup bash -c "$cmd" >/tmp/web.log 2>&1 </dev/null &',
-      "SSH 启动 Web",
-    );
-    setState(() {
-      _isProcessing = false;
-      if (ok) _webStarted = true;
-    });
+    _addLog("--- 启动本地 Web ---");
+    final workingDir = _expandHome('~/project/maintenance/frontend');
+    try {
+      _webProcess = await Process.start(
+        'flutter',
+        ['run'],
+        workingDirectory: workingDir,
+        runInShell: true,
+      );
+      _webProcess!.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) => _addLog(data));
+      _webProcess!.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) => _addLog(data));
+      _webProcess!.exitCode.then((_) {
+        if (mounted) setState(() => _webStarted = false);
+        _webProcess = null;
+      });
+      _addLog("Web 已启动 (PID: ${_webProcess!.pid})\n");
+      setState(() {
+        _isProcessing = false;
+        _webStarted = true;
+      });
+    } catch (e) {
+      _addLog("启动 Web 失败: $e\n");
+      _webProcess = null;
+      setState(() => _isProcessing = false);
+    }
   }
 
   // 功能：停止 Web
   Future<void> _stopWeb() async {
-    final cmd = _webStopCmdController.text.trim();
-    if (cmd.isEmpty) {
-      _addLog("Web 停止命令为空，请在设置中配置\n");
-      return;
-    }
     setState(() => _isProcessing = true);
-    await _sshRunCmd(cmd, "SSH 停止 Web");
+    if (_webProcess != null) {
+      _webProcess!.kill(ProcessSignal.sigkill);
+      _webProcess = null;
+    }
+    await Process.run('pkill', ['-9', '-f', 'maintenance/frontend']);
+    _addLog("Web 已停止\n");
     setState(() {
       _isProcessing = false;
       _webStarted = false;
