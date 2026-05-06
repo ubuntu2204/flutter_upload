@@ -47,6 +47,8 @@ class UploadHomePage extends StatefulWidget {
 class _UploadHomePageState extends State<UploadHomePage> {
   bool _isConnected = false;
   bool _isProcessing = false;
+  bool _backendStarted = false;
+  bool _webStarted = false;
   String _log = "等待操作...";
   Timer? _timer;
   late final TextEditingController _ftpHostController;
@@ -60,6 +62,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
+  late final TextEditingController _webStartCmdController;
+  late final TextEditingController _webStopCmdController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -96,6 +100,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
+    _webStartCmdController = TextEditingController();
+    _webStopCmdController = TextEditingController();
     // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
@@ -122,6 +128,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
+    _webStartCmdController.dispose();
+    _webStopCmdController.dispose();
     super.dispose();
   }
 
@@ -226,6 +234,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
         _serverStartCmdController.text = serverStartCmd;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
 
+      final webStartCmd = (decoded['webStartCmd'] ?? '').toString();
+      final webStopCmd = (decoded['webStopCmd'] ?? '').toString();
+      if (webStartCmd.isNotEmpty) _webStartCmdController.text = webStartCmd;
+      if (webStopCmd.isNotEmpty) _webStopCmdController.text = webStopCmd;
+
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -253,6 +266,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
+      'webStartCmd': _webStartCmdController.text.trim(),
+      'webStopCmd': _webStopCmdController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -495,6 +510,66 @@ class _UploadHomePageState extends State<UploadHomePage> {
       _addLog("异常发生: $e\n");
       return false;
     }
+  }
+
+  // 功能：启动后端
+  Future<void> _startBackend() async {
+    if (_serverStartCmd.isEmpty) {
+      _addLog("后端启动命令为空，请在设置中配置\n");
+      return;
+    }
+    setState(() => _isProcessing = true);
+    final ok = await _sshRunCmd(
+      'nohup bash -c "${_serverStartCmd}" >/tmp/server.log 2>&1 </dev/null &',
+      "SSH 启动后端",
+    );
+    setState(() {
+      _isProcessing = false;
+      if (ok) _backendStarted = true;
+    });
+  }
+
+  // 功能：停止后端
+  Future<void> _stopBackend() async {
+    setState(() => _isProcessing = true);
+    await _sshRunCmd('pkill -x server; true', "SSH 停止后端");
+    setState(() {
+      _isProcessing = false;
+      _backendStarted = false;
+    });
+  }
+
+  // 功能：启动 Web
+  Future<void> _startWeb() async {
+    final cmd = _webStartCmdController.text.trim();
+    if (cmd.isEmpty) {
+      _addLog("Web 启动命令为空，请在设置中配置\n");
+      return;
+    }
+    setState(() => _isProcessing = true);
+    final ok = await _sshRunCmd(
+      'nohup bash -c "$cmd" >/tmp/web.log 2>&1 </dev/null &',
+      "SSH 启动 Web",
+    );
+    setState(() {
+      _isProcessing = false;
+      if (ok) _webStarted = true;
+    });
+  }
+
+  // 功能：停止 Web
+  Future<void> _stopWeb() async {
+    final cmd = _webStopCmdController.text.trim();
+    if (cmd.isEmpty) {
+      _addLog("Web 停止命令为空，请在设置中配置\n");
+      return;
+    }
+    setState(() => _isProcessing = true);
+    await _sshRunCmd(cmd, "SSH 停止 Web");
+    setState(() {
+      _isProcessing = false;
+      _webStarted = false;
+    });
   }
 
   // 功能 1：打包并上传前端
@@ -796,6 +871,14 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   controller: _mobilePathController,
                   decoration: const InputDecoration(labelText: '移动端本地路径'),
                 ),
+                TextField(
+                  controller: _webStartCmdController,
+                  decoration: const InputDecoration(labelText: 'Web 启动命令（远程）'),
+                ),
+                TextField(
+                  controller: _webStopCmdController,
+                  decoration: const InputDecoration(labelText: 'Web 停止命令（远程）'),
+                ),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,
@@ -831,6 +914,64 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     label: const Text("上传后端并赋权"),
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: (!_isProcessing && !_backendStarted)
+                        ? _startBackend
+                        : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text("启动后端"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.teal.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: (!_isProcessing && _backendStarted)
+                        ? _stopBackend
+                        : null,
+                    icon: const Icon(Icons.stop),
+                    label: const Text("停止后端"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed:
+                        (!_isProcessing && !_webStarted) ? _startWeb : null,
+                    icon: const Icon(Icons.language),
+                    label: const Text("启动 Web"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.indigo.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed:
+                        (!_isProcessing && _webStarted) ? _stopWeb : null,
+                    icon: const Icon(Icons.language_outlined),
+                    label: const Text("停止 Web"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.deepOrange.shade700,
+                        foregroundColor: Colors.white),
                   ),
                 ),
               ],
