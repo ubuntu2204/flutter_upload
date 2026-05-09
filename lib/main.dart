@@ -805,7 +805,14 @@ class _UploadHomePageState extends State<UploadHomePage> {
     // 将 bin/server.dart 编译为 bin/server 可执行文件
     bool built = await _runCmd(
         'dart',
-        ['compile', 'exe', 'bin/server.dart', '-o', 'bin/server'],
+        // ['compile', 'exe', 'bin/server.dart', '-o', 'bin/server'],
+        [
+          'compile',
+          'exe',
+          'bin/server.dart',
+          '-o',
+          'build/cli/linux_x64/bundle/bin/server'
+        ],
         _backendPath,
         "Dart 后端构建");
 
@@ -819,7 +826,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       try {
         final ok = await _ftpUploadSingleFile(
           ftp,
-          File("$_backendPath/bin/server"),
+          // File("$_backendPath/bin/server"),
+          File("$_backendPath/build/cli/linux_x64/bundle/bin/server"),
           _ftpBackendDir,
           'server',
         );
