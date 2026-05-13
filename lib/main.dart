@@ -47,10 +47,6 @@ class UploadHomePage extends StatefulWidget {
 class _UploadHomePageState extends State<UploadHomePage> {
   bool _isConnected = false;
   bool _isProcessing = false;
-  bool _backendStarted = false;
-  bool _webStarted = false;
-  Process? _backendProcess;
-  Process? _webProcess;
   String _log = "等待操作...";
   Timer? _timer;
   late final TextEditingController _ftpHostController;
@@ -64,8 +60,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _webStartCmdController;
-  late final TextEditingController _webStopCmdController;
+  late final TextEditingController _ftpMobileWebDirController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -80,6 +75,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
+  String get _ftpMobileWebDir =>
+      _ftpMobileWebDirController.text.trim().replaceAll('\\', '/');
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -102,13 +99,10 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _webStartCmdController = TextEditingController();
-    _webStopCmdController = TextEditingController();
+    _ftpMobileWebDirController = TextEditingController();
     // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
-      if (!mounted) return;
-      await _detectRunningProcesses();
       if (!mounted) return;
       if (_ftpHost.isNotEmpty) _checkConnectivity();
       // 配置加载完成后再启动定时检测，且仅在 host 非空时才 ping
@@ -132,33 +126,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
-    _webStartCmdController.dispose();
-    _webStopCmdController.dispose();
-    _backendProcess?.kill();
-    _webProcess?.kill();
+    _ftpMobileWebDirController.dispose();
     super.dispose();
-  }
-
-  /// 检测本地后端和 Web 进程是否已在运行
-  Future<void> _detectRunningProcesses() async {
-    try {
-      final backendResult = await Process.run(
-        'pgrep',
-        ['-f', 'maintenance/backend'],
-      );
-      final webResult = await Process.run(
-        'pgrep',
-        ['-f', 'maintenance/frontend'],
-      );
-      if (mounted) {
-        setState(() {
-          if (backendResult.exitCode == 0) _backendStarted = true;
-          if (webResult.exitCode == 0) _webStarted = true;
-        });
-        if (_backendStarted) _addLog("检测到后端进程已在运行\n");
-        if (_webStarted) _addLog("检测到 Web 进程已在运行\n");
-      }
-    } catch (_) {}
   }
 
   // 检测服务器联通性 (ping 192.168.77.2)
@@ -262,10 +231,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
         _serverStartCmdController.text = serverStartCmd;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
 
-      final webStartCmd = (decoded['webStartCmd'] ?? '').toString();
-      final webStopCmd = (decoded['webStopCmd'] ?? '').toString();
-      if (webStartCmd.isNotEmpty) _webStartCmdController.text = webStartCmd;
-      if (webStopCmd.isNotEmpty) _webStopCmdController.text = webStopCmd;
+      final mobileWebDir = (decoded['mobileWebDir'] ?? '').toString();
+      if (mobileWebDir.isNotEmpty)
+        _ftpMobileWebDirController.text = mobileWebDir;
 
       _addLog(
         "已加载配置文件: ${file.path}\n"
@@ -294,8 +262,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
-      'webStartCmd': _webStartCmdController.text.trim(),
-      'webStopCmd': _webStopCmdController.text.trim(),
+      'mobileWebDir': _ftpMobileWebDirController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -540,115 +507,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
-  // 功能：启动后端
-  Future<void> _startBackend() async {
-    if (_backendProcess != null) {
-      _addLog("后端已在运行中\n");
-      return;
-    }
-    setState(() => _isProcessing = true);
-    _addLog("--- 启动本地后端 ---");
-    final workingDir = _expandHome('~/project/maintenance/backend');
-    try {
-      _backendProcess = await Process.start(
-        'dart',
-        ['run', 'bin/server.dart'],
-        workingDirectory: workingDir,
-      );
-      _backendProcess!.stdout
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((data) => _addLog(data));
-      _backendProcess!.stderr
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((data) => _addLog(data));
-      _backendProcess!.exitCode.then((_) {
-        if (mounted) setState(() => _backendStarted = false);
-        _backendProcess = null;
-      });
-      _addLog("后端已启动 (PID: ${_backendProcess!.pid})\n");
-      setState(() {
-        _isProcessing = false;
-        _backendStarted = true;
-      });
-    } catch (e) {
-      _addLog("启动后端失败: $e\n");
-      _backendProcess = null;
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  // 功能：停止后端
-  Future<void> _stopBackend() async {
-    setState(() => _isProcessing = true);
-    final pid = _backendProcess?.pid;
-    if (_backendProcess != null) {
-      _backendProcess!.kill(ProcessSignal.sigkill);
-      _backendProcess = null;
-    }
-    if (pid != null) {
-      await Process.run('pkill', ['-9', '-P', '$pid']);
-    }
-    await Process.run('pkill', ['-9', '-f', 'server.dart']);
-    _addLog("后端已停止\n");
-    setState(() {
-      _isProcessing = false;
-      _backendStarted = false;
-    });
-  }
-
-  // 功能：启动 Web
-  Future<void> _startWeb() async {
-    if (_webProcess != null) {
-      _addLog("Web 已在运行中\n");
-      return;
-    }
-    setState(() => _isProcessing = true);
-    _addLog("--- 启动本地 Web ---");
-    final workingDir = _expandHome('~/project/maintenance/frontend');
-    try {
-      _webProcess = await Process.start(
-        'flutter',
-        ['run'],
-        workingDirectory: workingDir,
-        runInShell: true,
-      );
-      _webProcess!.stdout
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((data) => _addLog(data));
-      _webProcess!.stderr
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((data) => _addLog(data));
-      _webProcess!.exitCode.then((_) {
-        if (mounted) setState(() => _webStarted = false);
-        _webProcess = null;
-      });
-      _addLog("Web 已启动 (PID: ${_webProcess!.pid})\n");
-      setState(() {
-        _isProcessing = false;
-        _webStarted = true;
-      });
-    } catch (e) {
-      _addLog("启动 Web 失败: $e\n");
-      _webProcess = null;
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  // 功能：停止 Web
-  Future<void> _stopWeb() async {
-    setState(() => _isProcessing = true);
-    if (_webProcess != null) {
-      _webProcess!.kill(ProcessSignal.sigkill);
-      _webProcess = null;
-    }
-    await Process.run('pkill', ['-9', '-f', 'maintenance/frontend']);
-    _addLog("Web 已停止\n");
-    setState(() {
-      _isProcessing = false;
-      _webStarted = false;
-    });
-  }
-
   // 功能 1：打包并上传前端
   Future<void> _handleFrontend() async {
     setState(() => _isProcessing = true);
@@ -703,6 +561,27 @@ class _UploadHomePageState extends State<UploadHomePage> {
       _addLog("异常发生: $e\n");
       return false;
     }
+  }
+
+  // 功能：打包并上传移动端网页
+  Future<void> _handleMobileWeb() async {
+    setState(() => _isProcessing = true);
+    _addLog("--- 开始移动端网页部署流程 ---");
+
+    final remoteDir =
+        _ftpMobileWebDir.isNotEmpty ? _ftpMobileWebDir : 'm.flutter.gold';
+
+    bool built = await _runCmd(
+        'flutter', ['build', 'web'], _mobilePath, "Flutter Web 构建（移动端）");
+    if (built) {
+      final ok = await _ftpUploadDirectoryParallel(
+        Directory("$_mobilePath/build/web"),
+        remoteDir,
+      );
+      if (ok) _addLog("移动端网页部署完成！\n");
+    }
+
+    setState(() => _isProcessing = false);
   }
 
   // 功能 3：打包并部署到移动设备
@@ -957,12 +836,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   decoration: const InputDecoration(labelText: '移动端本地路径'),
                 ),
                 TextField(
-                  controller: _webStartCmdController,
-                  decoration: const InputDecoration(labelText: 'Web 启动命令（远程）'),
-                ),
-                TextField(
-                  controller: _webStopCmdController,
-                  decoration: const InputDecoration(labelText: 'Web 停止命令（远程）'),
+                  controller: _ftpMobileWebDirController,
+                  decoration: const InputDecoration(labelText: '移动端网页远程目录'),
                 ),
                 const SizedBox(height: 12),
                 Align(
@@ -1008,64 +883,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: (!_isProcessing && !_backendStarted)
-                        ? _startBackend
-                        : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text("启动后端"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.teal.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (!_isProcessing && _backendStarted)
-                        ? _stopBackend
-                        : null,
-                    icon: const Icon(Icons.stop),
-                    label: const Text("停止后端"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed:
-                        (!_isProcessing && !_webStarted) ? _startWeb : null,
-                    icon: const Icon(Icons.language),
-                    label: const Text("启动 Web"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.indigo.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed:
-                        (!_isProcessing && _webStarted) ? _stopWeb : null,
-                    icon: const Icon(Icons.language_outlined),
-                    label: const Text("停止 Web"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.deepOrange.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
                     onPressed: !_isProcessing ? _handleMobile : null,
                     icon: const Icon(Icons.phone_android),
                     label: const Text("部署到移动设备"),
@@ -1084,6 +901,24 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: (_isConnected && !_isProcessing)
+                        ? _handleMobileWeb
+                        : null,
+                    icon: const Icon(Icons.phone_iphone),
+                    label: const Text("上传移动端网页"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.purple.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
