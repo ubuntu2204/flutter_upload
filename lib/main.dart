@@ -3,11 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ftpconnect/ftpconnect.dart';
 import 'config.dart';
+import 'actions/task_config.dart';
+import 'actions/frontend_action.dart';
+import 'actions/backend_action.dart';
+import 'actions/mobile_action.dart';
+import 'actions/mobile_rename_action.dart';
+import 'actions/build_windows_action.dart';
 
 void main(List<String> args) {
-  // 支持 --config=<path> 或 --config <path> 指定配置文件路径
   for (int i = 0; i < args.length; i++) {
     final arg = args[i];
     if (arg.startsWith('--config=')) {
@@ -46,6 +50,7 @@ class UploadHomePage extends StatefulWidget {
 
 class _UploadHomePageState extends State<UploadHomePage> {
   bool _isConnected = false;
+  bool _isConnected2 = false;
   bool _isProcessing = false;
   String _log = "等待操作...";
   Timer? _timer;
@@ -60,7 +65,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _ftpMobileWebDirController;
+  late final TextEditingController _winBuildHostController;
+  late final TextEditingController _winBuildSshUserController;
+  late final TextEditingController _winLocalProjectPathController;
+  late final TextEditingController _winRemoteProjectDirController;
+  late final TextEditingController _localIpController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -75,8 +84,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
-  String get _ftpMobileWebDir =>
-      _ftpMobileWebDirController.text.trim().replaceAll('\\', '/');
+  String get _winBuildHost => _winBuildHostController.text.trim();
+  String get _winBuildSshUser => _winBuildSshUserController.text.trim();
+  String get _winLocalProjectPath =>
+      _expandHome(_winLocalProjectPathController.text.trim());
+  String get _winRemoteProjectDir => _winRemoteProjectDirController.text.trim();
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -99,15 +111,19 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _ftpMobileWebDirController = TextEditingController();
-    // 延迟到第一帧渲染完毕后再执行 I/O 和网络探测，加快冷启动窗口出现速度
+    _winBuildHostController = TextEditingController();
+    _winBuildSshUserController = TextEditingController();
+    _winLocalProjectPathController = TextEditingController();
+    _winRemoteProjectDirController = TextEditingController();
+    _localIpController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
       if (_ftpHost.isNotEmpty) _checkConnectivity();
-      // 配置加载完成后再启动定时检测，且仅在 host 非空时才 ping
+      if (_winBuildHost.isNotEmpty) _checkConnectivity2();
       _timer = Timer.periodic(const Duration(seconds: 5), (_) {
         if (_ftpHost.isNotEmpty) _checkConnectivity();
+        if (_winBuildHost.isNotEmpty) _checkConnectivity2();
       });
     });
   }
@@ -126,11 +142,14 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
-    _ftpMobileWebDirController.dispose();
+    _winBuildHostController.dispose();
+    _winBuildSshUserController.dispose();
+    _winLocalProjectPathController.dispose();
+    _winRemoteProjectDirController.dispose();
+    _localIpController.dispose();
     super.dispose();
   }
 
-  // 检测服务器联通性 (ping 192.168.77.2)
   Future<void> _checkConnectivity() async {
     try {
       final result =
@@ -141,9 +160,22 @@ class _UploadHomePageState extends State<UploadHomePage> {
         });
       }
     } catch (e) {
+      if (mounted) setState(() => _isConnected = false);
+    }
+  }
+
+  Future<void> _checkConnectivity2() async {
+    if (_winBuildHost.isEmpty) return;
+    try {
+      final result =
+          await Process.run('ping', ['-c', '1', '-W', '1', _winBuildHost]);
       if (mounted) {
-        setState(() => _isConnected = false);
+        setState(() {
+          _isConnected2 = (result.exitCode == 0);
+        });
       }
+    } catch (e) {
+      if (mounted) setState(() => _isConnected2 = false);
     }
   }
 
@@ -155,40 +187,23 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
-  // 通用的执行命令函数
-  Future<bool> _runCmd(
-      String cmd, List<String> args, String workingDir, String desc) async {
-    final fullCommand = "$cmd ${args.join(' ')}";
-    final startTime = DateTime.now().toString().split('.').first;
-
-    String cmdLog = "----------------------------------------\n"
-        "开始: $startTime\n"
-        "任务: $desc\n"
-        "目录: $workingDir\n"
-        "命令: $fullCommand\n";
-    _addLog(cmdLog);
-
-    try {
-      final result = await Process.run(cmd, args,
-          workingDirectory: workingDir, runInShell: true);
-
-      String resultLog =
-          "结果: ${result.exitCode == 0 ? '成功' : '失败'} (退出码: ${result.exitCode})\n";
-
-      if (result.stdout.toString().trim().isNotEmpty) {
-        resultLog += "标准输出:\n${result.stdout}\n";
-      }
-      if (result.stderr.toString().trim().isNotEmpty) {
-        resultLog += "标准错误:\n${result.stderr}\n";
-      }
-
-      _addLog(resultLog);
-      return result.exitCode == 0;
-    } catch (e) {
-      _addLog("异常发生: $e\n");
-      return false;
-    }
-  }
+  TaskConfig _buildConfig() => TaskConfig(
+        ftpHost: _ftpHost,
+        ftpPort: _ftpPort,
+        ftpUser: _ftpUser,
+        ftpPass: _ftpPass,
+        ftpFrontendDir: _ftpFrontendDir,
+        ftpBackendDir: _ftpBackendDir,
+        frontendPath: _frontendPath,
+        backendPath: _backendPath,
+        sshUser: _sshUser,
+        serverStartCmd: _serverStartCmd,
+        mobilePath: _mobilePath,
+        winBuildHost: _winBuildHost,
+        winBuildSshUser: _winBuildSshUser,
+        winLocalProjectPath: _winLocalProjectPath,
+        winRemoteProjectDir: _winRemoteProjectDir,
+      );
 
   Future<void> _loadFtpConfig() async {
     final file = File(AppConfig.ftpConfigPath);
@@ -196,7 +211,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       _addLog("未找到配置文件: ${file.path}\n");
       return;
     }
-
     try {
       final raw = await file.readAsString();
       final decoded = jsonDecode(raw);
@@ -204,7 +218,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         _addLog("配置文件格式错误：必须是 JSON 对象\n");
         return;
       }
-
       final host = (decoded['host'] ?? '').toString().trim();
       final port = int.tryParse((decoded['port'] ?? '').toString().trim());
       final user = (decoded['user'] ?? '').toString();
@@ -213,7 +226,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       final backendDir = (decoded['backendDir'] ?? '').toString();
       final frontendPath = (decoded['frontendPath'] ?? '').toString();
       final backendPath = (decoded['backendPath'] ?? '').toString();
-
       if (host.isNotEmpty) _ftpHostController.text = host;
       if (port != null) _ftpPortController.text = port.toString();
       if (user.isNotEmpty) _ftpUserController.text = user;
@@ -222,7 +234,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (backendDir.isNotEmpty) _ftpBackendDirController.text = backendDir;
       if (frontendPath.isNotEmpty) _frontendPathController.text = frontendPath;
       if (backendPath.isNotEmpty) _backendPathController.text = backendPath;
-
       final sshUser = (decoded['sshUser'] ?? '').toString();
       final serverStartCmd = (decoded['serverStartCmd'] ?? '').toString();
       final mobilePath = (decoded['mobilePath'] ?? '').toString();
@@ -230,11 +241,21 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (serverStartCmd.isNotEmpty)
         _serverStartCmdController.text = serverStartCmd;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
-
-      final mobileWebDir = (decoded['mobileWebDir'] ?? '').toString();
-      if (mobileWebDir.isNotEmpty)
-        _ftpMobileWebDirController.text = mobileWebDir;
-
+      final winBuildHost = (decoded['winBuildHost'] ?? '').toString();
+      final winBuildSshUser = (decoded['winBuildSshUser'] ?? '').toString();
+      final winLocalProjectPath =
+          (decoded['winLocalProjectPath'] ?? '').toString();
+      final winRemoteProjectDir =
+          (decoded['winRemoteProjectDir'] ?? '').toString();
+      final localIp = (decoded['localIp'] ?? '').toString();
+      if (winBuildHost.isNotEmpty) _winBuildHostController.text = winBuildHost;
+      if (winBuildSshUser.isNotEmpty)
+        _winBuildSshUserController.text = winBuildSshUser;
+      if (winLocalProjectPath.isNotEmpty)
+        _winLocalProjectPathController.text = winLocalProjectPath;
+      if (winRemoteProjectDir.isNotEmpty)
+        _winRemoteProjectDirController.text = winRemoteProjectDir;
+      if (localIp.isNotEmpty) _localIpController.text = localIp;
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -262,7 +283,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
-      'mobileWebDir': _ftpMobileWebDirController.text.trim(),
+      'winBuildHost': _winBuildHostController.text.trim(),
+      'winBuildSshUser': _winBuildSshUserController.text.trim(),
+      'localIp': _localIpController.text.trim(),
+      'winLocalProjectPath': _winLocalProjectPathController.text.trim(),
+      'winRemoteProjectDir': _winRemoteProjectDirController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -273,473 +298,35 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
-  Future<FTPConnect?> _connectFtp() async {
-    if (_ftpUser.isEmpty || _ftpPass.isEmpty) {
-      _addLog("FTP 用户名或密码为空，请先在 FTP 设置中填写。\n");
-      return null;
-    }
+  // ── 按钮 handler ──
 
-    final startTime = DateTime.now().toString().split('.').first;
-    _addLog("----------------------------------------\n"
-        "开始: $startTime\n"
-        "任务: FTP 连接\n"
-        "主机: $_ftpHost:$_ftpPort\n"
-        "用户: $_ftpUser\n");
-
-    final ftp = FTPConnect(
-      _ftpHost,
-      port: _ftpPort,
-      user: _ftpUser,
-      pass: _ftpPass,
-      timeout: 30,
-    );
-
-    try {
-      final ok = await ftp.connect();
-      _addLog("结果: ${ok ? '成功' : '失败'}\n");
-      if (!ok) return null;
-      await ftp.setTransferType(TransferType.binary);
-      return ftp;
-    } catch (e) {
-      _addLog("异常发生: $e\n");
-      return null;
-    }
-  }
-
-  /// 静默连接 FTP（供并行上传使用，不打印日志）
-  Future<FTPConnect?> _connectFtpQuiet() async {
-    if (_ftpUser.isEmpty || _ftpPass.isEmpty) return null;
-    final ftp = FTPConnect(
-      _ftpHost,
-      port: _ftpPort,
-      user: _ftpUser,
-      pass: _ftpPass,
-      timeout: 30,
-    );
-    try {
-      final ok = await ftp.connect();
-      if (!ok) return null;
-      await ftp.setTransferType(TransferType.binary);
-      return ftp;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<bool> _ftpCwdCreate(FTPConnect ftp, String remoteDir,
-      {bool silent = false}) async {
-    final normalized = remoteDir.trim().replaceAll('\\', '/');
-    final segments = normalized.split('/').where((s) => s.isNotEmpty).toList();
-    if (segments.isEmpty) return true;
-
-    for (final seg in segments) {
-      try {
-        bool changed = await ftp.changeDirectory(seg);
-        if (!changed) {
-          try {
-            await ftp.makeDirectory(seg);
-          } catch (_) {
-            // 目录可能已存在，忽略创建失败，继续尝试进入
-          }
-          changed = await ftp.changeDirectory(seg);
-          if (!changed) {
-            if (!silent) _addLog("FTP 进入目录失败: $seg\n");
-            return false;
-          }
-        }
-        if (!silent) _addLog("FTP 进入目录: $seg\n");
-      } catch (e) {
-        if (!silent) _addLog("FTP 处理目录失败 ($seg): $e\n");
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /// 并行上传本地目录到远程（多 FTP 连接加速）
-  Future<bool> _ftpUploadDirectoryParallel(
-      Directory localDir, String remoteBaseDir,
-      {int concurrency = 4}) async {
-    if (!await localDir.exists()) {
-      _addLog("本地目录不存在: ${localDir.path}\n");
-      return false;
-    }
-
-    final startTime = DateTime.now().toString().split('.').first;
-    _addLog("----------------------------------------\n"
-        "开始: $startTime\n"
-        "任务: FTP 并行上传目录 (并发数: $concurrency)\n"
-        "本地: ${localDir.path}\n"
-        "远程: $remoteBaseDir\n");
-
-    // 收集所有文件
-    final basePath = localDir.path;
-    final allFiles = <File>[];
-    await for (final entity
-        in localDir.list(recursive: true, followLinks: false)) {
-      if (entity is File) allFiles.add(entity);
-    }
-
-    _addLog("共 ${allFiles.length} 个文件，开始并行上传...\n");
-
-    // 均分文件给各并行连接
-    final groups = List.generate(concurrency, (_) => <File>[]);
-    for (int i = 0; i < allFiles.length; i++) {
-      groups[i % concurrency].add(allFiles[i]);
-    }
-
-    final futures = groups.where((g) => g.isNotEmpty).map((group) async {
-      final ftp = await _connectFtpQuiet();
-      if (ftp == null) {
-        _addLog("并行连接失败，${group.length} 个文件跳过\n");
-        return (ok: 0, fail: group.length);
-      }
-      int ok = 0;
-      int fail = 0;
-      try {
-        for (final file in group) {
-          final absolute = file.path;
-          String relative = absolute.startsWith(basePath)
-              ? absolute.substring(basePath.length)
-              : absolute;
-          while (relative.startsWith(Platform.pathSeparator) ||
-              relative.startsWith('/')) {
-            relative = relative.substring(1);
-          }
-          final relNormalized = relative.replaceAll('\\', '/');
-          final lastSlash = relNormalized.lastIndexOf('/');
-          final parentRel =
-              lastSlash == -1 ? '' : relNormalized.substring(0, lastSlash);
-          final fileName = lastSlash == -1
-              ? relNormalized
-              : relNormalized.substring(lastSlash + 1);
-
-          // 每个文件从根目录重新导航，确保并发安全
-          try {
-            await ftp.changeDirectory('/');
-          } catch (_) {}
-          bool navOk = await _ftpCwdCreate(ftp, remoteBaseDir, silent: true);
-          if (navOk && parentRel.isNotEmpty) {
-            navOk = await _ftpCwdCreate(ftp, parentRel, silent: true);
-          }
-          if (!navOk) {
-            _addLog("导航失败: $relNormalized\n");
-            fail++;
-            continue;
-          }
-
-          try {
-            await ftp.deleteFile(fileName);
-          } catch (_) {}
-
-          bool uploaded = false;
-          try {
-            uploaded = await ftp.uploadFileWithRetry(
-              file,
-              pRemoteName: fileName,
-              pRetryCount: 2,
-            );
-          } catch (e) {
-            _addLog("上传异常: $relNormalized - $e\n");
-          }
-
-          if (uploaded) {
-            ok++;
-          } else {
-            fail++;
-            _addLog("上传失败: $relNormalized\n");
-          }
-        }
-      } finally {
-        try {
-          await ftp.disconnect();
-        } catch (_) {}
-      }
-      return (ok: ok, fail: fail);
-    }).toList();
-
-    final results = await Future.wait(futures);
-    final totalOk = results.fold(0, (s, r) => s + r.ok);
-    final totalFail = results.fold(0, (s, r) => s + r.fail);
-
-    _addLog("目录上传完成: 成功 $totalOk, 失败 $totalFail\n");
-    return totalFail == 0;
-  }
-
-  Future<bool> _ftpUploadSingleFile(FTPConnect ftp, File localFile,
-      String remoteDir, String remoteName) async {
-    if (!await localFile.exists()) {
-      _addLog("本地文件不存在: ${localFile.path}\n");
-      return false;
-    }
-
-    final startTime = DateTime.now().toString().split('.').first;
-    _addLog("----------------------------------------\n"
-        "开始: $startTime\n"
-        "任务: FTP 上传文件\n"
-        "本地: ${localFile.path}\n"
-        "远程目录: $remoteDir\n"
-        "远程文件名: $remoteName\n");
-
-    try {
-      await ftp.changeDirectory('/');
-    } catch (_) {}
-
-    final entered = await _ftpCwdCreate(ftp, remoteDir);
-    if (!entered) return false;
-
-    try {
-      // 覆盖：先删除远程同名文件（不存在时忽略）
-      try {
-        await ftp.deleteFile(remoteName);
-      } catch (_) {}
-
-      final ok = await ftp.uploadFileWithRetry(
-        localFile,
-        pRemoteName: remoteName,
-        pRetryCount: 2,
-      );
-      _addLog("结果: ${ok ? '成功' : '失败'}\n");
-      return ok;
-    } catch (e) {
-      _addLog("异常发生: $e\n");
-      return false;
-    }
-  }
-
-  // 功能 1：打包并上传前端
   Future<void> _handleFrontend() async {
     setState(() => _isProcessing = true);
-    _addLog("--- 开始前端流程 ---");
-
-    bool built = await _runCmd(
-        'flutter', ['build', 'web'], _frontendPath, "Flutter Web 构建");
-    if (built) {
-      final ok = await _ftpUploadDirectoryParallel(
-        Directory("$_frontendPath/build/web"),
-        _ftpFrontendDir,
-      );
-      if (ok) _addLog("前端部署完成！\n");
-    }
-
+    await runFrontend(_buildConfig(), _addLog);
     setState(() => _isProcessing = false);
   }
 
-  /// 通过 SSH（密钥认证）在远程服务器执行命令
-  Future<bool> _sshRunCmd(String remoteCmd, String desc) async {
-    final user = _sshUser.isNotEmpty ? _sshUser : _ftpUser;
-    final startTime = DateTime.now().toString().split('.').first;
-    _addLog("----------------------------------------\n"
-        "开始: $startTime\n"
-        "任务: $desc\n"
-        "命令: ssh $user@$_ftpHost '$remoteCmd'\n");
-    try {
-      final result = await Process.run(
-        'ssh',
-        [
-          '-o',
-          'StrictHostKeyChecking=no',
-          '-o',
-          'BatchMode=yes',
-          '-o',
-          'ConnectTimeout=10',
-          '$user@$_ftpHost',
-          remoteCmd,
-        ],
-      );
-      String resultLog =
-          "结果: ${result.exitCode == 0 ? '成功' : '失败'} (退出码: ${result.exitCode})\n";
-      if (result.stdout.toString().trim().isNotEmpty) {
-        resultLog += "标准输出:\n${result.stdout}\n";
-      }
-      if (result.stderr.toString().trim().isNotEmpty) {
-        resultLog += "标准错误:\n${result.stderr}\n";
-      }
-      _addLog(resultLog);
-      return result.exitCode == 0;
-    } catch (e) {
-      _addLog("异常发生: $e\n");
-      return false;
-    }
-  }
-
-  // 功能：打包并上传移动端网页
-  Future<void> _handleMobileWeb() async {
-    setState(() => _isProcessing = true);
-    _addLog("--- 开始移动端网页部署流程 ---");
-
-    final remoteDir =
-        _ftpMobileWebDir.isNotEmpty ? _ftpMobileWebDir : 'm.flutter.gold';
-
-    bool built = await _runCmd(
-        'flutter', ['build', 'web'], _mobilePath, "Flutter Web 构建（移动端）");
-    if (built) {
-      final ok = await _ftpUploadDirectoryParallel(
-        Directory("$_mobilePath/build/web"),
-        remoteDir,
-      );
-      if (ok) _addLog("移动端网页部署完成！\n");
-    }
-
-    setState(() => _isProcessing = false);
-  }
-
-  // 功能 3：打包并部署到移动设备
-  Future<void> _handleMobile() async {
-    setState(() => _isProcessing = true);
-    _addLog("--- 开始移动端部署流程 ---");
-
-    // 1. 检查 adb 是否可用
-    final adbCheck = await Process.run('adb', ['devices'], runInShell: true);
-    if (adbCheck.exitCode != 0) {
-      _addLog("adb 不可用，请确保已安装 Android SDK 并配置好 PATH\n");
-      setState(() => _isProcessing = false);
-      return;
-    }
-    final adbOutput = adbCheck.stdout.toString();
-    final deviceLines = adbOutput
-        .split('\n')
-        .skip(1)
-        .where((l) => l.trim().isNotEmpty && !l.startsWith('*'))
-        .toList();
-    if (deviceLines.isEmpty) {
-      _addLog("未检测到已连接的 USB 调试设备，请确保设备已连接并开启 USB 调试\n");
-      setState(() => _isProcessing = false);
-      return;
-    }
-    _addLog("检测到设备:\n${deviceLines.join('\n')}\n");
-
-    // 2. flutter build apk
-    final built = await _runCmd(
-        'flutter', ['build', 'apk'], _mobilePath, "Flutter APK 构建");
-    if (!built) {
-      setState(() => _isProcessing = false);
-      return;
-    }
-
-    // 3. adb install
-    final apkPath =
-        '$_mobilePath/build/app/outputs/flutter-apk/app-release.apk';
-    if (!await File(apkPath).exists()) {
-      _addLog("APK 文件未找到: $apkPath\n");
-      setState(() => _isProcessing = false);
-      return;
-    }
-    final installed = await _runCmd(
-        'adb', ['install', '-r', apkPath], _mobilePath, "ADB 安装 APK");
-    if (installed) {
-      _addLog("移动端部署完成！\n");
-    }
-
-    setState(() => _isProcessing = false);
-  }
-
-  // 功能 4：打包 APK 并重命名复制到 ~/音乐
-  Future<void> _handleMobileRename() async {
-    setState(() => _isProcessing = true);
-    _addLog("--- 开始打包重命名流程 ---");
-
-    final built = await _runCmd(
-        'flutter', ['build', 'apk'], _mobilePath, "Flutter APK 构建");
-    if (!built) {
-      setState(() => _isProcessing = false);
-      return;
-    }
-
-    final apkPath =
-        '$_mobilePath/build/app/outputs/flutter-apk/app-release.apk';
-    if (!await File(apkPath).exists()) {
-      _addLog("APK 文件未找到: $apkPath\n");
-      setState(() => _isProcessing = false);
-      return;
-    }
-
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final home = Platform.environment['HOME'] ?? '';
-    final destDir = Directory('$home/音乐');
-    if (!await destDir.exists()) {
-      await destDir.create(recursive: true);
-    }
-    final destPath = '${destDir.path}/app-release-$dateStr.apk';
-
-    try {
-      await File(apkPath).copy(destPath);
-      _addLog("APK 已复制到: $destPath\n");
-      _addLog("打包重命名完成！\n");
-    } catch (e) {
-      _addLog("复制文件失败: $e\n");
-    }
-
-    setState(() => _isProcessing = false);
-  }
-
-  // 功能 2：打包并上传后端
   Future<void> _handleBackend() async {
     setState(() => _isProcessing = true);
-    _addLog("--- 开始后端流程 ---");
+    await runBackend(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
 
-    // 1. 构建 Dart 可执行文件
-    // 将 bin/server.dart 编译为 bin/server 可执行文件
-    bool built = await _runCmd(
-        'dart',
-        // ['compile', 'exe', 'bin/server.dart', '-o', 'bin/server'],
-        [
-          'compile',
-          'exe',
-          'bin/server.dart',
-          '-o',
-          'build/cli/linux_x64/bundle/bin/server'
-        ],
-        _backendPath,
-        "Dart 后端构建");
+  Future<void> _handleMobile() async {
+    setState(() => _isProcessing = true);
+    await runMobile(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
 
-    if (built) {
-      final ftp = await _connectFtp();
-      if (ftp == null) {
-        setState(() => _isProcessing = false);
-        return;
-      }
+  Future<void> _handleMobileRename() async {
+    setState(() => _isProcessing = true);
+    await runMobileRename(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
 
-      try {
-        final ok = await _ftpUploadSingleFile(
-          ftp,
-          // File("$_backendPath/bin/server"),
-          File("$_backendPath/build/cli/linux_x64/bundle/bin/server"),
-          _ftpBackendDir,
-          'server',
-        );
-        if (ok) {
-          // 给上传的文件添加可执行权限
-          try {
-            await ftp.changeDirectory('/');
-            await _ftpCwdCreate(ftp, _ftpBackendDir);
-            final chmodReply =
-                await ftp.sendCustomCommand('SITE CHMOD 755 server');
-            _addLog("设置可执行权限: ${chmodReply.message}\n");
-          } catch (e) {
-            _addLog("设置可执行权限失败: $e\n");
-          }
-
-          // 关闭旧 server 进程，再启动新 server
-          await _sshRunCmd('pkill -x server; true', "SSH 关闭旧 server 进程");
-          if (_serverStartCmd.isNotEmpty) {
-            await _sshRunCmd(
-              'nohup bash -c "${_serverStartCmd}" >/tmp/server.log 2>&1 </dev/null &',
-              "SSH 启动新 server",
-            );
-          }
-
-          _addLog("后端部署完成！\n");
-        }
-      } finally {
-        try {
-          await ftp.disconnect();
-        } catch (_) {}
-      }
-    }
-
+  Future<void> _handleBuildWindows() async {
+    setState(() => _isProcessing = true);
+    await runBuildWindows(_buildConfig(), _addLog);
     setState(() => _isProcessing = false);
   }
 
@@ -775,6 +362,30 @@ class _UploadHomePageState extends State<UploadHomePage> {
               Text(_isConnected ? "$_ftpHost 在线" : "服务器离线",
                   style: TextStyle(
                       color: _isConnected ? Colors.green : Colors.red,
+                      fontSize: 13)),
+              const SizedBox(width: 16),
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _isConnected2 ? Colors.green : Colors.red,
+                  boxShadow: [
+                    if (_isConnected2)
+                      BoxShadow(
+                          color: Colors.green.withOpacity(0.4),
+                          blurRadius: 4,
+                          spreadRadius: 2)
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                  _isConnected2
+                      ? "${_winBuildHost.isNotEmpty ? _winBuildHost : '编译服务器'} 在线"
+                      : "编译服务器离线",
+                  style: TextStyle(
+                      color: _isConnected2 ? Colors.green : Colors.red,
                       fontSize: 13)),
               const SizedBox(width: 16),
             ],
@@ -836,8 +447,29 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   decoration: const InputDecoration(labelText: '移动端本地路径'),
                 ),
                 TextField(
-                  controller: _ftpMobileWebDirController,
-                  decoration: const InputDecoration(labelText: '移动端网页远程目录'),
+                  controller: _winBuildHostController,
+                  decoration:
+                      const InputDecoration(labelText: 'Windows 编译服务器 IP'),
+                ),
+                TextField(
+                  controller: _winBuildSshUserController,
+                  decoration:
+                      const InputDecoration(labelText: 'Windows SSH 用户名'),
+                ),
+                TextField(
+                  controller: _localIpController,
+                  decoration:
+                      const InputDecoration(labelText: '本机 IP（供 Windows 回连克隆）'),
+                ),
+                TextField(
+                  controller: _winLocalProjectPathController,
+                  decoration:
+                      const InputDecoration(labelText: 'Windows 编译本地项目路径'),
+                ),
+                TextField(
+                  controller: _winRemoteProjectDirController,
+                  decoration:
+                      const InputDecoration(labelText: 'Windows 远程项目根目录'),
                 ),
                 const SizedBox(height: 12),
                 Align(
@@ -911,14 +543,14 @@ class _UploadHomePageState extends State<UploadHomePage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: (_isConnected && !_isProcessing)
-                        ? _handleMobileWeb
+                    onPressed: (_isConnected2 && !_isProcessing)
+                        ? _handleBuildWindows
                         : null,
-                    icon: const Icon(Icons.phone_iphone),
-                    label: const Text("上传移动端网页"),
+                    icon: const Icon(Icons.computer),
+                    label: const Text("编译 Windows"),
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.purple.shade700,
+                        backgroundColor: Colors.blue.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
