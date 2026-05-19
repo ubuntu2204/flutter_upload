@@ -10,6 +10,7 @@ import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
 import 'actions/build_windows_action.dart';
+import 'actions/run_windows_action.dart';
 
 void main(List<String> args) {
   for (int i = 0; i < args.length; i++) {
@@ -203,6 +204,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
         winBuildSshUser: _winBuildSshUser,
         winLocalProjectPath: _winLocalProjectPath,
         winRemoteProjectDir: _winRemoteProjectDir,
+        localIp: _localIpController.text.trim(),
       );
 
   Future<void> _loadFtpConfig() async {
@@ -327,6 +329,12 @@ class _UploadHomePageState extends State<UploadHomePage> {
   Future<void> _handleBuildWindows() async {
     setState(() => _isProcessing = true);
     await runBuildWindows(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
+
+  Future<void> _handleRunWindowsFlutter() async {
+    setState(() => _isProcessing = true);
+    await runWindowsFlutter(_buildConfig(), _addLog);
     setState(() => _isProcessing = false);
   }
 
@@ -551,6 +559,20 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.blue.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: (_isConnected2 && !_isProcessing)
+                        ? _handleRunWindowsFlutter
+                        : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text("执行flutter Windows"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.purple.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),

@@ -15,6 +15,7 @@ class TaskConfig {
   final String winBuildSshUser;
   final String winLocalProjectPath;
   final String winRemoteProjectDir;
+  final String localIp;
 
   const TaskConfig({
     required this.ftpHost,
@@ -32,5 +33,6 @@ class TaskConfig {
     required this.winBuildSshUser,
     required this.winLocalProjectPath,
     required this.winRemoteProjectDir,
+    this.localIp = '',
   });
 }

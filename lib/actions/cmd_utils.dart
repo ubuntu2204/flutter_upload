@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 /// 在本地 [workingDir] 执行 [cmd] + [args]，记录日志到 [addLog]。
@@ -70,6 +71,51 @@ Future<bool> sshRunCmd(
     }
     addLog(log);
     return result.exitCode == 0;
+  } catch (e) {
+    addLog('异常发生: $e\n');
+    return false;
+  }
+}
+
+/// 通过 SSH 在 [host] 上以 [user] 身份执行 [remoteCmd]，实时流式输出日志。
+Future<bool> sshStreamCmd(
+  String host,
+  String user,
+  String remoteCmd,
+  String desc,
+  void Function(String) addLog, {
+  int connectTimeout = 30,
+}) async {
+  final startTime = DateTime.now().toString().split('.').first;
+  addLog('----------------------------------------\n'
+      '开始: $startTime\n'
+      '任务: $desc\n'
+      '命令: ssh $user@$host\n');
+  try {
+    final process = await Process.start('ssh', [
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'ConnectTimeout=$connectTimeout',
+      '$user@$host',
+      remoteCmd,
+    ]);
+
+    process.stdout
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
+        .listen((line) => addLog('$line\n'));
+    process.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter())
+        .listen((line) => addLog('[stderr] $line\n'));
+
+    final exitCode = await process.exitCode;
+    final success = exitCode == 0;
+    addLog('结果: ${success ? '成功' : '失败'} (退出码: $exitCode)\n');
+    return success;
   } catch (e) {
     addLog('异常发生: $e\n');
     return false;
