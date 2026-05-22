@@ -21,6 +21,11 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
   );
   if (!built) return;
 
+  // SSH 先杀掉旧进程，再上传新文件
+  final sshUser = cfg.sshUser.isNotEmpty ? cfg.sshUser : cfg.ftpUser;
+  await sshRunCmd(cfg.ftpHost, sshUser, 'pkill -x server; true',
+      'SSH 关闭旧 server 进程', addLog);
+
   final ftp = await connectFtp(cfg, addLog);
   if (ftp == null) return;
   try {
@@ -44,10 +49,7 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
       addLog('设置可执行权限失败: $e\n');
     }
 
-    // SSH 重启服务（连接 FTP 主机，即后端服务器）
-    final sshUser = cfg.sshUser.isNotEmpty ? cfg.sshUser : cfg.ftpUser;
-    await sshRunCmd(cfg.ftpHost, sshUser, 'pkill -x server; true',
-        'SSH 关闭旧 server 进程', addLog);
+    // SSH 启动新 server
     if (cfg.serverStartCmd.isNotEmpty) {
       await sshRunCmd(
         cfg.ftpHost,

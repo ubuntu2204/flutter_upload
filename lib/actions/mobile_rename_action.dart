@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 import 'cmd_utils.dart';
+import 'ftp_utils.dart';
 import 'task_config.dart';
 
 /// 功能 4：flutter build apk --release，同步版本号到 pubspec.yaml、
-/// build_info.dart、后端 config.json，然后将 APK 复制到
-/// ~/音乐（副本）和后端 downloads/app-latest.apk（自动升级）。
+/// build_info.dart、后端 config.json，然后将 APK 上传至远程
+/// uploads/app-latest.apk（自动升级），config.json 上传至远程 bin/，
+/// 同时在 ~/音乐 保留本地副本。
 Future<void> runMobileRename(
     TaskConfig cfg, void Function(String) addLog) async {
   addLog('--- 开始打包重命名流程 ---');
@@ -92,15 +94,32 @@ Future<void> runMobileRename(
     addLog('复制到音乐文件夹失败: $e');
   }
 
-  // ── 复制到后端 downloads（供自动升级）────────────────────────────────────
-  final downloadsDir = Directory('${cfg.backendPath}/downloads');
-  if (!await downloadsDir.exists()) await downloadsDir.create(recursive: true);
-  final latestPath = '${downloadsDir.path}/app-latest.apk';
-  try {
-    await File(apkPath).copy(latestPath);
-    addLog('APK 已复制到: $latestPath（供自动升级）');
-  } catch (e) {
-    addLog('复制到后端 downloads 失败: $e');
+  // ── FTP 上传 APK + config.json ─────────────────────────────────────────
+  final ftp = await connectFtp(cfg, addLog);
+  if (ftp != null) {
+    try {
+      // 计算 uploads 目录（同级于 bin，例如 api.flutter.gold/uploads）
+      final binDir =
+          cfg.ftpBackendDir.replaceAll('\\', '/').replaceAll(RegExp(r'/$'), '');
+      final lastSlash = binDir.lastIndexOf('/');
+      final appBaseDir =
+          lastSlash >= 0 ? binDir.substring(0, lastSlash) : binDir;
+      final ftpUploadsDir = '$appBaseDir/uploads';
+
+      // 上传 APK → uploads/app-latest.apk
+      await ftpUploadSingleFile(
+          cfg, ftp, File(apkPath), ftpUploadsDir, 'app-latest.apk', addLog);
+
+      // 上传 config.json → bin/config.json
+      if (await configFile.exists()) {
+        await ftpUploadSingleFile(
+            cfg, ftp, configFile, cfg.ftpBackendDir, 'config.json', addLog);
+      }
+    } finally {
+      try {
+        await ftp.disconnect();
+      } catch (_) {}
+    }
   }
 
   addLog('打包重命名完成！\n');
