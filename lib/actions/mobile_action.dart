@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'cmd_utils.dart';
 import 'task_config.dart';
+import 'update_build_date_action.dart';
 
 /// 功能 3：flutter build apk 并通过 adb 安装到已连接设备。
 Future<void> runMobile(TaskConfig cfg, void Function(String) addLog) async {
   addLog('--- 开始移动端部署流程 ---');
+  final dateUpdated = await updateBuildDate(cfg, addLog);
+  if (!dateUpdated) return;
 
   final adbCheck = await Process.run('adb', ['devices'], runInShell: true);
   if (adbCheck.exitCode != 0) {
