@@ -11,11 +11,6 @@ class TaskConfig {
   final String sshUser;
   final String serverStartCmd;
   final String mobilePath;
-  final String winBuildHost;
-  final String winBuildSshUser;
-  final String winLocalProjectPath;
-  final String winRemoteProjectDir;
-  final String localIp;
 
   const TaskConfig({
     required this.ftpHost,
@@ -29,10 +24,5 @@ class TaskConfig {
     required this.sshUser,
     required this.serverStartCmd,
     required this.mobilePath,
-    required this.winBuildHost,
-    required this.winBuildSshUser,
-    required this.winLocalProjectPath,
-    required this.winRemoteProjectDir,
-    this.localIp = '',
   });
 }

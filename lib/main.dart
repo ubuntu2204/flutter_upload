@@ -9,8 +9,6 @@ import 'actions/frontend_action.dart';
 import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
-import 'actions/build_windows_action.dart';
-import 'actions/run_windows_action.dart';
 
 void main(List<String> args) {
   for (int i = 0; i < args.length; i++) {
@@ -51,7 +49,6 @@ class UploadHomePage extends StatefulWidget {
 
 class _UploadHomePageState extends State<UploadHomePage> {
   bool _isConnected = false;
-  bool _isConnected2 = false;
   bool _isProcessing = false;
   String _log = "等待操作...";
   Timer? _timer;
@@ -66,11 +63,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _winBuildHostController;
-  late final TextEditingController _winBuildSshUserController;
-  late final TextEditingController _winLocalProjectPathController;
-  late final TextEditingController _winRemoteProjectDirController;
-  late final TextEditingController _localIpController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -85,11 +77,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
-  String get _winBuildHost => _winBuildHostController.text.trim();
-  String get _winBuildSshUser => _winBuildSshUserController.text.trim();
-  String get _winLocalProjectPath =>
-      _expandHome(_winLocalProjectPathController.text.trim());
-  String get _winRemoteProjectDir => _winRemoteProjectDirController.text.trim();
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -112,19 +99,12 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _winBuildHostController = TextEditingController();
-    _winBuildSshUserController = TextEditingController();
-    _winLocalProjectPathController = TextEditingController();
-    _winRemoteProjectDirController = TextEditingController();
-    _localIpController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
       if (_ftpHost.isNotEmpty) _checkConnectivity();
-      if (_winBuildHost.isNotEmpty) _checkConnectivity2();
       _timer = Timer.periodic(const Duration(seconds: 5), (_) {
         if (_ftpHost.isNotEmpty) _checkConnectivity();
-        if (_winBuildHost.isNotEmpty) _checkConnectivity2();
       });
     });
   }
@@ -143,11 +123,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
-    _winBuildHostController.dispose();
-    _winBuildSshUserController.dispose();
-    _winLocalProjectPathController.dispose();
-    _winRemoteProjectDirController.dispose();
-    _localIpController.dispose();
     super.dispose();
   }
 
@@ -162,21 +137,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       }
     } catch (e) {
       if (mounted) setState(() => _isConnected = false);
-    }
-  }
-
-  Future<void> _checkConnectivity2() async {
-    if (_winBuildHost.isEmpty) return;
-    try {
-      final result =
-          await Process.run('ping', ['-c', '1', '-W', '1', _winBuildHost]);
-      if (mounted) {
-        setState(() {
-          _isConnected2 = (result.exitCode == 0);
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isConnected2 = false);
     }
   }
 
@@ -200,11 +160,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         sshUser: _sshUser,
         serverStartCmd: _serverStartCmd,
         mobilePath: _mobilePath,
-        winBuildHost: _winBuildHost,
-        winBuildSshUser: _winBuildSshUser,
-        winLocalProjectPath: _winLocalProjectPath,
-        winRemoteProjectDir: _winRemoteProjectDir,
-        localIp: _localIpController.text.trim(),
       );
 
   Future<void> _loadFtpConfig() async {
@@ -243,21 +198,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (serverStartCmd.isNotEmpty)
         _serverStartCmdController.text = serverStartCmd;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
-      final winBuildHost = (decoded['winBuildHost'] ?? '').toString();
-      final winBuildSshUser = (decoded['winBuildSshUser'] ?? '').toString();
-      final winLocalProjectPath =
-          (decoded['winLocalProjectPath'] ?? '').toString();
-      final winRemoteProjectDir =
-          (decoded['winRemoteProjectDir'] ?? '').toString();
-      final localIp = (decoded['localIp'] ?? '').toString();
-      if (winBuildHost.isNotEmpty) _winBuildHostController.text = winBuildHost;
-      if (winBuildSshUser.isNotEmpty)
-        _winBuildSshUserController.text = winBuildSshUser;
-      if (winLocalProjectPath.isNotEmpty)
-        _winLocalProjectPathController.text = winLocalProjectPath;
-      if (winRemoteProjectDir.isNotEmpty)
-        _winRemoteProjectDirController.text = winRemoteProjectDir;
-      if (localIp.isNotEmpty) _localIpController.text = localIp;
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -285,11 +225,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
-      'winBuildHost': _winBuildHostController.text.trim(),
-      'winBuildSshUser': _winBuildSshUserController.text.trim(),
-      'localIp': _localIpController.text.trim(),
-      'winLocalProjectPath': _winLocalProjectPathController.text.trim(),
-      'winRemoteProjectDir': _winRemoteProjectDirController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -326,18 +261,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
-  Future<void> _handleBuildWindows() async {
-    setState(() => _isProcessing = true);
-    await runBuildWindows(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
-  Future<void> _handleRunWindowsFlutter() async {
-    setState(() => _isProcessing = true);
-    await runWindowsFlutter(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -370,30 +293,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
               Text(_isConnected ? "$_ftpHost 在线" : "服务器离线",
                   style: TextStyle(
                       color: _isConnected ? Colors.green : Colors.red,
-                      fontSize: 13)),
-              const SizedBox(width: 16),
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _isConnected2 ? Colors.green : Colors.red,
-                  boxShadow: [
-                    if (_isConnected2)
-                      BoxShadow(
-                          color: Colors.green.withOpacity(0.4),
-                          blurRadius: 4,
-                          spreadRadius: 2)
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                  _isConnected2
-                      ? "${_winBuildHost.isNotEmpty ? _winBuildHost : '编译服务器'} 在线"
-                      : "编译服务器离线",
-                  style: TextStyle(
-                      color: _isConnected2 ? Colors.green : Colors.red,
                       fontSize: 13)),
               const SizedBox(width: 16),
             ],
@@ -453,31 +352,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                 TextField(
                   controller: _mobilePathController,
                   decoration: const InputDecoration(labelText: '移动端本地路径'),
-                ),
-                TextField(
-                  controller: _winBuildHostController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows 编译服务器 IP'),
-                ),
-                TextField(
-                  controller: _winBuildSshUserController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows SSH 用户名'),
-                ),
-                TextField(
-                  controller: _localIpController,
-                  decoration:
-                      const InputDecoration(labelText: '本机 IP（供 Windows 回连克隆）'),
-                ),
-                TextField(
-                  controller: _winLocalProjectPathController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows 编译本地项目路径'),
-                ),
-                TextField(
-                  controller: _winRemoteProjectDirController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows 远程项目根目录'),
                 ),
                 const SizedBox(height: 12),
                 Align(
@@ -541,38 +415,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (_isConnected2 && !_isProcessing)
-                        ? _handleBuildWindows
-                        : null,
-                    icon: const Icon(Icons.computer),
-                    label: const Text("编译 Windows"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.blue.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (_isConnected2 && !_isProcessing)
-                        ? _handleRunWindowsFlutter
-                        : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text("执行flutter Windows"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.purple.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
