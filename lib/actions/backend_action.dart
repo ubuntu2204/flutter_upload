@@ -39,6 +39,21 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
     );
     if (!ok) return;
 
+    // 上传 config.json 到 server 同目录
+    final configFile = File('${cfg.backendPath}/config.json');
+    if (await configFile.exists()) {
+      await ftpUploadSingleFile(
+        cfg,
+        ftp,
+        configFile,
+        cfg.ftpBackendDir,
+        'config.json',
+        addLog,
+      );
+    } else {
+      addLog('未找到 config.json，跳过配置文件上传\n');
+    }
+
     // 赋可执行权限
     try {
       await ftp.changeDirectory('/');
