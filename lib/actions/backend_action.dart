@@ -22,9 +22,12 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
   if (!built) return;
 
   // SSH 先杀掉旧进程，再上传新文件
+  // sudo kill -9 $(sudo lsof -t -i:18080) 2>/dev/null
+  // 'pkill -x server; true'
   final sshUser = cfg.sshUser.isNotEmpty ? cfg.sshUser : cfg.ftpUser;
-  await sshRunCmd(cfg.ftpHost, sshUser, 'pkill -x server; true',
-      'SSH 关闭旧 server 进程', addLog);
+
+  // await sshRunCmd(cfg.ftpHost, sshUser,
+  //     r"kill -9 $(lsof -t -i:18080) 2>/dev/null", 'SSH 关闭旧 server 进程', addLog);
 
   final ftp = await connectFtp(cfg, addLog);
   if (ftp == null) return;
@@ -69,7 +72,7 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
       await sshRunCmd(
         cfg.ftpHost,
         sshUser,
-        'nohup bash -c "${cfg.serverStartCmd}" >/tmp/server.log 2>&1 </dev/null &',
+        'sudo systemctl restart dart-backend',
         'SSH 启动新 server',
         addLog,
       );
