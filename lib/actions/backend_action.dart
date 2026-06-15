@@ -72,7 +72,7 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
       await sshRunCmd(
         cfg.ftpHost,
         sshUser,
-        'sudo systemctl restart dart-backend',
+        'service dart-backend restart',
         'SSH 启动新 server',
         addLog,
       );
