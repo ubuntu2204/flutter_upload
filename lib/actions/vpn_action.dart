@@ -40,7 +40,7 @@ Future<void> setupVpnSudoers(
 
   // 弹出终端窗口让用户输入 sudo 密码
   addLog('正在打开终端窗口，请在终端中输入 sudo 密码完成配置...\n');
-  final result = await Process.run('gnome-terminal', [
+  await Process.run('gnome-terminal', [
     '--',
     'bash',
     '-c',

@@ -196,8 +196,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
       final serverStartCmd = (decoded['serverStartCmd'] ?? '').toString();
       final mobilePath = (decoded['mobilePath'] ?? '').toString();
       if (sshUser.isNotEmpty) _sshUserController.text = sshUser;
-      if (serverStartCmd.isNotEmpty)
+      if (serverStartCmd.isNotEmpty) {
         _serverStartCmdController.text = serverStartCmd;
+      }
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
       _addLog(
         "已加载配置文件: ${file.path}\n"
@@ -296,7 +297,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   boxShadow: [
                     if (_isConnected)
                       BoxShadow(
-                          color: Colors.green.withOpacity(0.4),
+                          color: Colors.green.withValues(alpha: 0.4),
                           blurRadius: 4,
                           spreadRadius: 2)
                   ],
