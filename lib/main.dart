@@ -9,6 +9,7 @@ import 'actions/frontend_action.dart';
 import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
+import 'actions/vpn_action.dart';
 
 void main(List<String> args) {
   for (int i = 0; i < args.length; i++) {
@@ -261,6 +262,18 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
+  Future<void> _handleVpn() async {
+    setState(() => _isProcessing = true);
+    await runVpn(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
+
+  Future<void> _handleVpnSudoers() async {
+    setState(() => _isProcessing = true);
+    await setupVpnSudoers(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -415,6 +428,34 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleVpnSudoers : null,
+                    icon: const Icon(Icons.settings),
+                    label: const Text("配置 VPN sudoers"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.grey.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleVpn : null,
+                    icon: const Icon(Icons.vpn_lock),
+                    label: const Text("连接 VPN1 + 路由"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.indigo.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
