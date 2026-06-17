@@ -12,6 +12,12 @@ class TaskConfig {
   final String serverStartCmd;
   final String mobilePath;
 
+  /// Windows 推送相关配置
+  final String maintenancePath; // 本地 maintenance 项目路径
+  final String windowsSshHost; // Windows SSH 主机地址
+  final String windowsSshUser; // Windows SSH 用户名
+  final String windowsRemotePath; // Windows 远程项目路径
+
   const TaskConfig({
     required this.ftpHost,
     required this.ftpPort,
@@ -24,5 +30,9 @@ class TaskConfig {
     required this.sshUser,
     required this.serverStartCmd,
     required this.mobilePath,
+    required this.maintenancePath,
+    required this.windowsSshHost,
+    required this.windowsSshUser,
+    required this.windowsRemotePath,
   });
 }
