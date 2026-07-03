@@ -11,6 +11,7 @@ import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
 import 'actions/vpn_action.dart';
 import 'actions/windows_push_action.dart';
+import 'settings_page.dart';
 
 void main(List<String> args) {
   for (int i = 0; i < args.length; i++) {
@@ -326,6 +327,35 @@ class _UploadHomePageState extends State<UploadHomePage> {
         title: const Text('打包上传助手'),
         actions: [
           IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SettingsPage(
+                  ftpHostController: _ftpHostController,
+                  ftpPortController: _ftpPortController,
+                  ftpUserController: _ftpUserController,
+                  ftpPassController: _ftpPassController,
+                  ftpFrontendDirController: _ftpFrontendDirController,
+                  ftpBackendDirController: _ftpBackendDirController,
+                  frontendPathController: _frontendPathController,
+                  backendPathController: _backendPathController,
+                  sshUserController: _sshUserController,
+                  serverStartCmdController: _serverStartCmdController,
+                  mobilePathController: _mobilePathController,
+                  maintenancePathController: _maintenancePathController,
+                  windowsSshHostController: _windowsSshHostController,
+                  windowsSshUserController: _windowsSshUserController,
+                  windowsRemotePathController: _windowsRemotePathController,
+                  onSave: _saveFtpConfig,
+                  onVpnSudoers: _handleVpnSudoers,
+                  onHostChanged: _checkConnectivity,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.settings),
+            tooltip: "设置",
+          ),
+          IconButton(
             onPressed: () => setState(() => _log = "日志已清空"),
             icon: const Icon(Icons.delete_sweep),
             tooltip: "清空日志",
@@ -361,94 +391,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            ExpansionTile(
-              title: const Text('FTP 设置'),
-              children: [
-                TextField(
-                  controller: _ftpHostController,
-                  decoration: const InputDecoration(labelText: 'FTP 主机'),
-                  onChanged: (_) => _checkConnectivity(),
-                ),
-                TextField(
-                  controller: _ftpPortController,
-                  decoration: const InputDecoration(labelText: 'FTP 端口'),
-                  keyboardType: TextInputType.number,
-                ),
-                TextField(
-                  controller: _ftpUserController,
-                  decoration: const InputDecoration(labelText: 'FTP 用户名'),
-                ),
-                TextField(
-                  controller: _ftpPassController,
-                  decoration: const InputDecoration(labelText: 'FTP 密码'),
-                  obscureText: true,
-                ),
-                TextField(
-                  controller: _frontendPathController,
-                  decoration: const InputDecoration(labelText: '前端本地路径'),
-                ),
-                TextField(
-                  controller: _ftpFrontendDirController,
-                  decoration: const InputDecoration(labelText: '前端远程目录'),
-                ),
-                TextField(
-                  controller: _backendPathController,
-                  decoration: const InputDecoration(labelText: '后端本地路径'),
-                ),
-                TextField(
-                  controller: _ftpBackendDirController,
-                  decoration: const InputDecoration(labelText: '后端远程目录'),
-                ),
-                TextField(
-                  controller: _sshUserController,
-                  decoration: const InputDecoration(labelText: 'SSH 用户名'),
-                ),
-                TextField(
-                  controller: _serverStartCmdController,
-                  decoration: const InputDecoration(labelText: '后端启动命令（远程）'),
-                ),
-                TextField(
-                  controller: _mobilePathController,
-                  decoration: const InputDecoration(labelText: '移动端本地路径'),
-                ),
-                const Divider(height: 24),
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text('Windows 推送设置',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                TextField(
-                  controller: _maintenancePathController,
-                  decoration:
-                      const InputDecoration(labelText: 'maintenance 本地项目路径'),
-                ),
-                TextField(
-                  controller: _windowsSshHostController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows SSH 主机'),
-                ),
-                TextField(
-                  controller: _windowsSshUserController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows SSH 用户名'),
-                ),
-                TextField(
-                  controller: _windowsRemotePathController,
-                  decoration:
-                      const InputDecoration(labelText: 'Windows 远程项目路径'),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: _saveFtpConfig,
-                    icon: const Icon(Icons.save),
-                    label: const Text('保存配置'),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
             Row(
               children: [
                 Expanded(
@@ -509,18 +451,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleVpnSudoers : null,
-                    icon: const Icon(Icons.settings),
-                    label: const Text("配置 VPN sudoers"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.grey.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
                     onPressed: !_isProcessing ? _handleVpn : null,
                     icon: const Icon(Icons.vpn_lock),
                     label: const Text("连接 VPN1 + 路由"),
@@ -530,11 +460,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                         foregroundColor: Colors.white),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
+                const SizedBox(width: 20),
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: !_isProcessing ? _handleWindowsPush : null,
@@ -546,8 +472,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                         foregroundColor: Colors.white),
                   ),
                 ),
-                const SizedBox(width: 20),
-                const Expanded(child: SizedBox()),
               ],
             ),
             const SizedBox(height: 20),
