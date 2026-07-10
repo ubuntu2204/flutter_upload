@@ -16,6 +16,8 @@ class SettingsPage extends StatefulWidget {
   final TextEditingController windowsSshHostController;
   final TextEditingController windowsSshUserController;
   final TextEditingController windowsRemotePathController;
+  final TextEditingController libcimbarPathController;
+  final TextEditingController libcimbarRemotePathController;
 
   final Future<void> Function() onSave;
   final Future<void> Function() onVpnSudoers;
@@ -38,6 +40,8 @@ class SettingsPage extends StatefulWidget {
     required this.windowsSshHostController,
     required this.windowsSshUserController,
     required this.windowsRemotePathController,
+    required this.libcimbarPathController,
+    required this.libcimbarRemotePathController,
     required this.onSave,
     required this.onVpnSudoers,
     required this.onHostChanged,
@@ -141,6 +145,22 @@ class _SettingsPageState extends State<SettingsPage> {
                     controller: widget.windowsRemotePathController,
                     decoration:
                         const InputDecoration(labelText: 'Windows 远程项目路径'),
+                  ),
+                  const Divider(height: 24),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text('libcimbar 推送设置',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  TextField(
+                    controller: widget.libcimbarPathController,
+                    decoration:
+                        const InputDecoration(labelText: 'libcimbar 本地项目路径'),
+                  ),
+                  TextField(
+                    controller: widget.libcimbarRemotePathController,
+                    decoration: const InputDecoration(
+                        labelText: 'Windows 远程 libcimbar 项目路径'),
                   ),
                   const SizedBox(height: 20),
                   Row(

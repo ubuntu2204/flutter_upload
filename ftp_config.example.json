@@ -29,5 +29,20 @@
   "sshUser": "example",
 
   "_comment_serverStartCmd": "远程服务器上启动后端的命令，上传完成后会先 pkill 旧进程再执行此命令",
-  "serverStartCmd": "cd /srv/api.example.com/bin && ./server"
+  "serverStartCmd": "cd /srv/api.example.com/bin && ./server",
+
+  "_comment_windowsSshHost": "Windows 服务器 SSH 主机地址（maintenance 与 libcimbar 推送共用）",
+  "windowsSshHost": "100.65.70.35",
+
+  "_comment_windowsSshUser": "Windows 服务器 SSH 用户名",
+  "windowsSshUser": "ubuntu",
+
+  "_comment_windowsRemotePath": "Windows 上 maintenance 远程项目路径（注意转义反斜杠）",
+  "windowsRemotePath": "C:\\project\\maintenance\\screenshot",
+
+  "_comment_libcimbarPath": "本地 libcimbar 项目路径，支持 ~/ 开头",
+  "libcimbarPath": "~/project/libcimbar",
+
+  "_comment_libcimbarRemotePath": "Windows 上 libcimbar 远程项目路径（注意转义反斜杠）",
+  "libcimbarRemotePath": "C:\\project\\libcimbar"
 }

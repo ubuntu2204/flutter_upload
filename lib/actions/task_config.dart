@@ -12,11 +12,13 @@ class TaskConfig {
   final String serverStartCmd;
   final String mobilePath;
 
-  /// Windows 推送相关配置
+  /// Windows 推送相关配置（共用同一台 Windows SSH 主机）
   final String maintenancePath; // 本地 maintenance 项目路径
   final String windowsSshHost; // Windows SSH 主机地址
   final String windowsSshUser; // Windows SSH 用户名
-  final String windowsRemotePath; // Windows 远程项目路径
+  final String windowsRemotePath; // Windows 远程 maintenance 项目路径
+  final String libcimbarPath; // 本地 libcimbar 项目路径
+  final String libcimbarRemotePath; // Windows 远程 libcimbar 项目路径
 
   const TaskConfig({
     required this.ftpHost,
@@ -34,5 +36,7 @@ class TaskConfig {
     required this.windowsSshHost,
     required this.windowsSshUser,
     required this.windowsRemotePath,
+    required this.libcimbarPath,
+    required this.libcimbarRemotePath,
   });
 }
