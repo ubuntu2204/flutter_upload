@@ -18,7 +18,9 @@ Future<void> runWindowsPush(
   );
 }
 
-/// 推送 libcimbar 项目到 Windows 服务器（从本地 git 推送到远程 Windows 仓库）。
+/// 推送 libcimbar 项目到 Windows 服务器：
+/// 1. 本地 git add + commit 保存当前版本
+/// 2. SSH 到 Windows 服务器，执行 git reset --hard HEAD + git pull
 Future<void> runLibcimbarPush(
     TaskConfig cfg, void Function(String) addLog) async {
   await _runWindowsGitPush(
