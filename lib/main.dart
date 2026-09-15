@@ -9,8 +9,6 @@ import 'actions/frontend_action.dart';
 import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
-import 'actions/vpn_action.dart';
-import 'actions/windows_push_action.dart';
 import 'settings_page.dart';
 
 void main(List<String> args) {
@@ -66,12 +64,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _maintenancePathController;
-  late final TextEditingController _windowsSshHostController;
-  late final TextEditingController _windowsSshUserController;
-  late final TextEditingController _windowsRemotePathController;
-  late final TextEditingController _libcimbarPathController;
-  late final TextEditingController _libcimbarRemotePathController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -86,15 +78,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
-  String get _maintenancePath =>
-      _expandHome(_maintenancePathController.text.trim());
-  String get _windowsSshHost => _windowsSshHostController.text.trim();
-  String get _windowsSshUser => _windowsSshUserController.text.trim();
-  String get _windowsRemotePath => _windowsRemotePathController.text.trim();
-  String get _libcimbarPath =>
-      _expandHome(_libcimbarPathController.text.trim());
-  String get _libcimbarRemotePath =>
-      _libcimbarRemotePathController.text.trim();
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -117,12 +100,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _maintenancePathController = TextEditingController();
-    _windowsSshHostController = TextEditingController();
-    _windowsSshUserController = TextEditingController();
-    _windowsRemotePathController = TextEditingController();
-    _libcimbarPathController = TextEditingController();
-    _libcimbarRemotePathController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
@@ -147,12 +124,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
-    _maintenancePathController.dispose();
-    _windowsSshHostController.dispose();
-    _windowsSshUserController.dispose();
-    _windowsRemotePathController.dispose();
-    _libcimbarPathController.dispose();
-    _libcimbarRemotePathController.dispose();
     super.dispose();
   }
 
@@ -190,12 +161,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         sshUser: _sshUser,
         serverStartCmd: _serverStartCmd,
         mobilePath: _mobilePath,
-        maintenancePath: _maintenancePath,
-        windowsSshHost: _windowsSshHost,
-        windowsSshUser: _windowsSshUser,
-        windowsRemotePath: _windowsRemotePath,
-        libcimbarPath: _libcimbarPath,
-        libcimbarRemotePath: _libcimbarRemotePath,
       );
 
   Future<void> _loadFtpConfig() async {
@@ -235,25 +200,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         _serverStartCmdController.text = serverStartCmd;
       }
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
-      final maintenancePath = (decoded['maintenancePath'] ?? '').toString();
-      final windowsSshHost = (decoded['windowsSshHost'] ?? '').toString();
-      final windowsSshUser = (decoded['windowsSshUser'] ?? '').toString();
-      final windowsRemotePath = (decoded['windowsRemotePath'] ?? '').toString();
-      final libcimbarPath = (decoded['libcimbarPath'] ?? '').toString();
-      final libcimbarRemotePath =
-          (decoded['libcimbarRemotePath'] ?? '').toString();
-      if (maintenancePath.isNotEmpty)
-        _maintenancePathController.text = maintenancePath;
-      if (windowsSshHost.isNotEmpty)
-        _windowsSshHostController.text = windowsSshHost;
-      if (windowsSshUser.isNotEmpty)
-        _windowsSshUserController.text = windowsSshUser;
-      if (windowsRemotePath.isNotEmpty)
-        _windowsRemotePathController.text = windowsRemotePath;
-      if (libcimbarPath.isNotEmpty)
-        _libcimbarPathController.text = libcimbarPath;
-      if (libcimbarRemotePath.isNotEmpty)
-        _libcimbarRemotePathController.text = libcimbarRemotePath;
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -281,12 +227,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
-      'maintenancePath': _maintenancePathController.text.trim(),
-      'windowsSshHost': _windowsSshHostController.text.trim(),
-      'windowsSshUser': _windowsSshUserController.text.trim(),
-      'windowsRemotePath': _windowsRemotePathController.text.trim(),
-      'libcimbarPath': _libcimbarPathController.text.trim(),
-      'libcimbarRemotePath': _libcimbarRemotePathController.text.trim(),
     };
     try {
       final encoder = const JsonEncoder.withIndent('  ');
@@ -323,30 +263,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
-  Future<void> _handleVpn() async {
-    setState(() => _isProcessing = true);
-    await runVpn(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
-  Future<void> _handleVpnSudoers() async {
-    setState(() => _isProcessing = true);
-    await setupVpnSudoers(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
-  Future<void> _handleWindowsPush() async {
-    setState(() => _isProcessing = true);
-    await runWindowsPush(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
-  Future<void> _handleLibcimbarPush() async {
-    setState(() => _isProcessing = true);
-    await runLibcimbarPush(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -369,14 +285,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   sshUserController: _sshUserController,
                   serverStartCmdController: _serverStartCmdController,
                   mobilePathController: _mobilePathController,
-                  maintenancePathController: _maintenancePathController,
-                  windowsSshHostController: _windowsSshHostController,
-                  windowsSshUserController: _windowsSshUserController,
-                  windowsRemotePathController: _windowsRemotePathController,
-                  libcimbarPathController: _libcimbarPathController,
-                  libcimbarRemotePathController: _libcimbarRemotePathController,
                   onSave: _saveFtpConfig,
-                  onVpnSudoers: _handleVpnSudoers,
                   onHostChanged: _checkConnectivity,
                 ),
               ),
@@ -470,46 +379,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleVpn : null,
-                    icon: const Icon(Icons.vpn_lock),
-                    label: const Text("连接 VPN1 + 路由"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.indigo.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleWindowsPush : null,
-                    icon: const Icon(Icons.desktop_windows),
-                    label: const Text("推送至 Windows"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.blue.shade800,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleLibcimbarPush : null,
-                    icon: const Icon(Icons.desktop_windows),
-                    label: const Text("推送 libcimbar"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.teal.shade800,
                         foregroundColor: Colors.white),
                   ),
                 ),

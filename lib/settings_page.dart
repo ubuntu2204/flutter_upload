@@ -12,15 +12,8 @@ class SettingsPage extends StatefulWidget {
   final TextEditingController sshUserController;
   final TextEditingController serverStartCmdController;
   final TextEditingController mobilePathController;
-  final TextEditingController maintenancePathController;
-  final TextEditingController windowsSshHostController;
-  final TextEditingController windowsSshUserController;
-  final TextEditingController windowsRemotePathController;
-  final TextEditingController libcimbarPathController;
-  final TextEditingController libcimbarRemotePathController;
 
   final Future<void> Function() onSave;
-  final Future<void> Function() onVpnSudoers;
   final VoidCallback onHostChanged;
 
   const SettingsPage({
@@ -36,14 +29,7 @@ class SettingsPage extends StatefulWidget {
     required this.sshUserController,
     required this.serverStartCmdController,
     required this.mobilePathController,
-    required this.maintenancePathController,
-    required this.windowsSshHostController,
-    required this.windowsSshUserController,
-    required this.windowsRemotePathController,
-    required this.libcimbarPathController,
-    required this.libcimbarRemotePathController,
     required this.onSave,
-    required this.onVpnSudoers,
     required this.onHostChanged,
   });
 
@@ -52,21 +38,12 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _isProcessing = false;
-
-  Future<void> _handleVpnSudoers() async {
-    setState(() => _isProcessing = true);
-    await widget.onVpnSudoers();
-    if (mounted) setState(() => _isProcessing = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: Column(
         children: [
-          if (_isProcessing) const LinearProgressIndicator(),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20.0),
@@ -120,63 +97,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     controller: widget.mobilePathController,
                     decoration: const InputDecoration(labelText: '移动端本地路径'),
                   ),
-                  const Divider(height: 24),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Text('Windows 推送设置',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                  TextField(
-                    controller: widget.maintenancePathController,
-                    decoration:
-                        const InputDecoration(labelText: 'maintenance 本地项目路径'),
-                  ),
-                  TextField(
-                    controller: widget.windowsSshHostController,
-                    decoration:
-                        const InputDecoration(labelText: 'Windows SSH 主机'),
-                  ),
-                  TextField(
-                    controller: widget.windowsSshUserController,
-                    decoration:
-                        const InputDecoration(labelText: 'Windows SSH 用户名'),
-                  ),
-                  TextField(
-                    controller: widget.windowsRemotePathController,
-                    decoration:
-                        const InputDecoration(labelText: 'Windows 远程项目路径'),
-                  ),
-                  const Divider(height: 24),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Text('libcimbar 推送设置',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                  TextField(
-                    controller: widget.libcimbarPathController,
-                    decoration:
-                        const InputDecoration(labelText: 'libcimbar 本地项目路径'),
-                  ),
-                  TextField(
-                    controller: widget.libcimbarRemotePathController,
-                    decoration: const InputDecoration(
-                        labelText: 'Windows 远程 libcimbar 项目路径'),
-                  ),
                   const SizedBox(height: 20),
                   Row(
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: !_isProcessing ? _handleVpnSudoers : null,
-                        icon: const Icon(Icons.settings),
-                        label: const Text('配置 VPN sudoers'),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade700,
-                            foregroundColor: Colors.white),
-                      ),
                       const Spacer(),
                       ElevatedButton.icon(
-                        onPressed:
-                            _isProcessing ? null : () async => widget.onSave(),
+                        onPressed: () async => widget.onSave(),
                         icon: const Icon(Icons.save),
                         label: const Text('保存配置'),
                       ),
