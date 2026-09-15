@@ -9,6 +9,7 @@ import 'actions/frontend_action.dart';
 import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
+import 'actions/local_server_action.dart';
 import 'settings_page.dart';
 
 void main(List<String> args) {
@@ -53,6 +54,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   bool _isProcessing = false;
   String _log = "等待操作...";
   Timer? _timer;
+  Process? _serverProcess; // 本地后端进程（启动后端/停止后端）
   late final TextEditingController _ftpHostController;
   late final TextEditingController _ftpPortController;
   late final TextEditingController _ftpUserController;
@@ -263,6 +265,20 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
+  Future<void> _handleStartServer() async {
+    setState(() => _isProcessing = true);
+    final p = await startLocalServer(_buildConfig(), _serverProcess, _addLog);
+    if (mounted) setState(() => _serverProcess = p);
+    if (mounted) setState(() => _isProcessing = false);
+  }
+
+  Future<void> _handleStopServer() async {
+    setState(() => _isProcessing = true);
+    final p = await stopLocalServer(_serverProcess, _addLog);
+    if (mounted) setState(() => _serverProcess = p);
+    if (mounted) setState(() => _isProcessing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -379,6 +395,34 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleStartServer : null,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text("启动后端"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.green.shade800,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleStopServer : null,
+                    icon: const Icon(Icons.stop),
+                    label: const Text("停止后端"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.red.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
