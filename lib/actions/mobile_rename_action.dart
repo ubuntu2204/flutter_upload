@@ -122,5 +122,5 @@ Future<void> runMobileRename(
     }
   }
 
-  addLog('打包重命名完成！\n');
+  addLog('打包重命名部署服务器完成！\n');
 }

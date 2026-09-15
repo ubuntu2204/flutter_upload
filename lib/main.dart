@@ -375,7 +375,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   child: ElevatedButton.icon(
                     onPressed: !_isProcessing ? _handleMobileRename : null,
                     icon: const Icon(Icons.drive_file_rename_outline),
-                    label: const Text("打包重命名"),
+                    label: const Text("打包重命名部署服务器"),
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.orange.shade700,
