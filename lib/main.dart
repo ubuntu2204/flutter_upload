@@ -55,6 +55,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String _log = "等待操作...";
   Timer? _timer;
   Process? _serverProcess; // 本地后端进程（启动后端/停止后端）
+  bool _isServerRunning = false; // 后端服务是否正在运行
   late final TextEditingController _ftpHostController;
   late final TextEditingController _ftpPortController;
   late final TextEditingController _ftpUserController;
@@ -268,15 +269,25 @@ class _UploadHomePageState extends State<UploadHomePage> {
   Future<void> _handleStartServer() async {
     setState(() => _isProcessing = true);
     final p = await startLocalServer(_buildConfig(), _serverProcess, _addLog);
-    if (mounted) setState(() => _serverProcess = p);
-    if (mounted) setState(() => _isProcessing = false);
+    if (mounted) {
+      setState(() {
+        _serverProcess = p;
+        _isServerRunning = true;
+        _isProcessing = false;
+      });
+    }
   }
 
   Future<void> _handleStopServer() async {
     setState(() => _isProcessing = true);
     final p = await stopLocalServer(_serverProcess, _addLog);
-    if (mounted) setState(() => _serverProcess = p);
-    if (mounted) setState(() => _isProcessing = false);
+    if (mounted) {
+      setState(() {
+        _serverProcess = p;
+        _isServerRunning = false;
+        _isProcessing = false;
+      });
+    }
   }
 
   @override
@@ -405,7 +416,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleStartServer : null,
+                    onPressed: (!_isProcessing && !_isServerRunning)
+                        ? _handleStartServer
+                        : null,
                     icon: const Icon(Icons.play_arrow),
                     label: const Text("启动后端"),
                     style: ElevatedButton.styleFrom(
@@ -417,7 +430,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
                 const SizedBox(width: 20),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleStopServer : null,
+                    onPressed: (!_isProcessing && _isServerRunning)
+                        ? _handleStopServer
+                        : null,
                     icon: const Icon(Icons.stop),
                     label: const Text("停止后端"),
                     style: ElevatedButton.styleFrom(
