@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:yaml/yaml.dart';
 import 'config.dart';
 import 'actions/task_config.dart';
 import 'actions/frontend_action.dart';
@@ -174,9 +174,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
     try {
       final raw = await file.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        _addLog("配置文件格式错误：必须是 JSON 对象\n");
+      final decoded = loadYaml(raw);
+      if (decoded is! YamlMap) {
+        _addLog("配置文件格式错误：必须是 YAML 键值对对象\n");
         return;
       }
       final host = (decoded['host'] ?? '').toString().trim();
@@ -232,12 +232,25 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'mobilePath': _mobilePathController.text.trim(),
     };
     try {
-      final encoder = const JsonEncoder.withIndent('  ');
-      await file.writeAsString('${encoder.convert(config)}\n');
+      await file.writeAsString(_yamlEncode(config));
       _addLog("配置已保存: ${file.path}\n");
     } catch (e) {
       _addLog("保存配置失败: $e\n");
     }
+  }
+
+  /// 将扁平的字符串键值对序列化为 YAML 文本（yaml 包仅提供解析，不含序列化）。
+  /// 除 port 外的字段均以单引号包裹，避免密码等值被解析为数字/布尔。
+  String _yamlEncode(Map<String, dynamic> config) {
+    final lines = <String>[];
+    config.forEach((key, value) {
+      if (value is int) {
+        lines.add('$key: $value');
+      } else {
+        lines.add("$key: '${value.toString().replaceAll("'", "''")}'");
+      }
+    });
+    return '${lines.join('\n')}\n';
   }
 
   // ── 按钮 handler ──
