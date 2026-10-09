@@ -10,6 +10,7 @@ import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
 import 'actions/local_server_action.dart';
+import 'actions/visionroam_action.dart';
 import 'settings_page.dart';
 
 void main(List<String> args) {
@@ -67,6 +68,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _mobilePathController;
+  late final TextEditingController _visionroamPathController;
+  late final TextEditingController _visionroamBinDirController;
+  late final TextEditingController _visionroamServiceController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -81,6 +85,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
+  String get _visionroamPath =>
+      _expandHome(_visionroamPathController.text.trim());
+  String get _visionroamBinDir =>
+      _visionroamBinDirController.text.trim().replaceAll('\\', '/');
+  String get _visionroamService => _visionroamServiceController.text.trim();
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -103,6 +112,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
     _mobilePathController = TextEditingController();
+    _visionroamPathController = TextEditingController();
+    _visionroamBinDirController = TextEditingController();
+    _visionroamServiceController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
@@ -127,6 +139,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
     _mobilePathController.dispose();
+    _visionroamPathController.dispose();
+    _visionroamBinDirController.dispose();
+    _visionroamServiceController.dispose();
     super.dispose();
   }
 
@@ -164,6 +179,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
         sshUser: _sshUser,
         serverStartCmd: _serverStartCmd,
         mobilePath: _mobilePath,
+        visionroamPath: _visionroamPath,
+        visionroamBinDir: _visionroamBinDir,
+        visionroamService: _visionroamService,
       );
 
   Future<void> _loadFtpConfig() async {
@@ -203,6 +221,18 @@ class _UploadHomePageState extends State<UploadHomePage> {
         _serverStartCmdController.text = serverStartCmd;
       }
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
+      final visionroamPath = (decoded['visionroamPath'] ?? '').toString();
+      final visionroamBinDir = (decoded['visionroamBinDir'] ?? '').toString();
+      final visionroamService = (decoded['visionroamService'] ?? '').toString();
+      if (visionroamPath.isNotEmpty) {
+        _visionroamPathController.text = visionroamPath;
+      }
+      if (visionroamBinDir.isNotEmpty) {
+        _visionroamBinDirController.text = visionroamBinDir;
+      }
+      if (visionroamService.isNotEmpty) {
+        _visionroamServiceController.text = visionroamService;
+      }
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -230,6 +260,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'mobilePath': _mobilePathController.text.trim(),
+      'visionroamPath': _visionroamPathController.text.trim(),
+      'visionroamBinDir': _visionroamBinDirController.text.trim(),
+      'visionroamService': _visionroamServiceController.text.trim(),
     };
     try {
       await file.writeAsString(_yamlEncode(config));
@@ -303,6 +336,12 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
+  Future<void> _handleVisionroam() async {
+    setState(() => _isProcessing = true);
+    await runVisionroam(_buildConfig(), _addLog);
+    setState(() => _isProcessing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -325,6 +364,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   sshUserController: _sshUserController,
                   serverStartCmdController: _serverStartCmdController,
                   mobilePathController: _mobilePathController,
+                  visionroamPathController: _visionroamPathController,
+                  visionroamBinDirController: _visionroamBinDirController,
+                  visionroamServiceController: _visionroamServiceController,
                   onSave: _saveFtpConfig,
                   onHostChanged: _checkConnectivity,
                 ),
@@ -451,6 +493,24 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: (_isConnected && !_isProcessing)
+                        ? _handleVisionroam
+                        : null,
+                    icon: const Icon(Icons.public),
+                    label: const Text("部署 VisionRoam 后端"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.deepPurple.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),

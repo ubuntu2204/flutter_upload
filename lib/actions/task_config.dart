@@ -11,6 +11,9 @@ class TaskConfig {
   final String sshUser;
   final String serverStartCmd;
   final String mobilePath;
+  final String visionroamPath;
+  final String visionroamBinDir;
+  final String visionroamService;
 
   const TaskConfig({
     required this.ftpHost,
@@ -24,5 +27,8 @@ class TaskConfig {
     required this.sshUser,
     required this.serverStartCmd,
     required this.mobilePath,
+    required this.visionroamPath,
+    required this.visionroamBinDir,
+    required this.visionroamService,
   });
 }

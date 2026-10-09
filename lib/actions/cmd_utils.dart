@@ -77,6 +77,48 @@ Future<bool> sshRunCmd(
   }
 }
 
+/// 通过 scp 将本地单个文件上传到远程 [remotePath]（需配置免密登录）。
+Future<bool> scpUploadFile(
+  String host,
+  String user,
+  String localPath,
+  String remotePath,
+  String desc,
+  void Function(String) addLog, {
+  int connectTimeout = 10,
+}) async {
+  final startTime = DateTime.now().toString().split('.').first;
+  addLog('----------------------------------------\n'
+      '开始: $startTime\n'
+      '任务: $desc\n'
+      '命令: scp $localPath $user@$host:$remotePath\n');
+  try {
+    final result = await Process.run('scp', [
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'ConnectTimeout=$connectTimeout',
+      localPath,
+      '$user@$host:$remotePath',
+    ]);
+    String log =
+        '结果: ${result.exitCode == 0 ? '成功' : '失败'} (退出码: ${result.exitCode})\n';
+    if (result.stdout.toString().trim().isNotEmpty) {
+      log += '标准输出:\n${result.stdout}\n';
+    }
+    if (result.stderr.toString().trim().isNotEmpty) {
+      log += '标准错误:\n${result.stderr}\n';
+    }
+    addLog(log);
+    return result.exitCode == 0;
+  } catch (e) {
+    addLog('异常发生: $e\n');
+    return false;
+  }
+}
+
 /// 通过 SSH 在 [host] 上以 [user] 身份执行 [remoteCmd]，实时流式输出日志。
 Future<bool> sshStreamCmd(
   String host,
