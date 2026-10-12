@@ -5,9 +5,10 @@ import 'ftp_utils.dart';
 import 'task_config.dart';
 
 /// 功能 4：flutter build apk --release，同步版本号到 pubspec.yaml、
-/// build_info.dart、后端 config.json，然后将 APK 上传至远程
+/// build_config.yaml、后端 config.json，然后将 APK 上传至远程
 /// uploads/app-latest.apk（自动升级），config.json 上传至远程 bin/，
 /// 同时在 ~/音乐 保留本地副本。
+/// 注：前端代码不写死版本号，运行时统一从 build_config.yaml 读取。
 Future<void> runMobileRename(
     TaskConfig cfg, void Function(String) addLog) async {
   addLog('--- 开始打包重命名流程 ---');
@@ -35,20 +36,21 @@ Future<void> runMobileRename(
   await pubspecFile.writeAsString(updatedPubspec);
   addLog('已更新 pubspec.yaml → version: $version+$buildNumber');
 
-  // ── 更新 lib/core/build_info.dart ─────────────────────────────────────────
-  final buildInfoDir = Directory('${cfg.mobilePath}/lib/core');
-  if (!await buildInfoDir.exists()) await buildInfoDir.create(recursive: true);
-  final buildInfoFile = File('${buildInfoDir.path}/build_info.dart');
-  await buildInfoFile.writeAsString('// 由打包脚本自动生成，请勿手动修改。\n'
-      '// ignore_for_file: constant_identifier_names\n'
-      '\n'
-      '/// 最后一次构建日期，格式 "YYYY-MM-DD"。\n'
-      "const String kBuildDate = '$dateDash';\n"
-      '\n'
-      '/// 当前 App build number（对应 pubspec.yaml 中 version 的 +N 部分）。\n'
-      '/// 用于与后端 /app-version 返回值比较，判断是否需要更新。\n'
-      'const int kAppBuildNumber = $buildNumber;\n');
-  addLog('已更新 build_info.dart');
+  // ── 同步 build_config.yaml 的 build_date（前端运行时唯一日期来源）─────────
+  // 保证 build_config.yaml / pubspec.yaml / 后端 config.json 三处一致，
+  // 前端 getBuildNumber() 从 yaml 算出的 build number 与服务端一致。
+  final buildConfigFile = File('${cfg.mobilePath}/build_config.yaml');
+  if (await buildConfigFile.exists()) {
+    try {
+      var yamlContent = await buildConfigFile.readAsString();
+      yamlContent = yamlContent.replaceAll(
+          RegExp(r'(build_date:\s*")[^"]*(")'), 'build_date: "$dateDash"');
+      await buildConfigFile.writeAsString(yamlContent);
+      addLog('已更新 build_config.yaml → build_date: "$dateDash"');
+    } catch (e) {
+      addLog('更新 build_config.yaml 失败: $e');
+    }
+  }
 
   // ── 更新后端 config.json 中 app 字段 ──────────────────────────────────────
   final configFile = File('${cfg.backendPath}/config.json');
