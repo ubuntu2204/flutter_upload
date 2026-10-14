@@ -27,8 +27,13 @@ backendDir: 'api.example.com/bin'
 # SSH 登录用户名（用于上传后远程重启服务，需配置免密登录；若与 FTP 用户名相同可省略）
 sshUser: 'example'
 
-# 远程服务器上启动后端的命令，上传完成后会先 pkill 旧进程再执行此命令
+# 远程服务器上启动后端的命令（形如 'cd <bin 目录> && ./server'）。
+# 后端部署流程：停止旧进程 → 备份为 server.bak.<时间戳> → FTP 上传 → 执行本命令启动
+# → 按 serverPort 做健康检查（确认端口真正监听，失败时打印回滚指引）
 serverStartCmd: 'cd /srv/api.example.com/bin && ./server'
+
+# 后端监听端口，用于部署后确认服务真正启动（留空则默认 18080）
+serverPort: 18080
 
 # 移动端本地路径，支持 ~/ 开头的路径
 mobilePath: '~/project/mobile'

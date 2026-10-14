@@ -67,6 +67,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _backendPathController;
   late final TextEditingController _sshUserController;
   late final TextEditingController _serverStartCmdController;
+  late final TextEditingController _serverPortController;
   late final TextEditingController _mobilePathController;
   late final TextEditingController _visionroamPathController;
   late final TextEditingController _visionroamBinDirController;
@@ -84,6 +85,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _backendPath => _expandHome(_backendPathController.text.trim());
   String get _sshUser => _sshUserController.text.trim();
   String get _serverStartCmd => _serverStartCmdController.text.trim();
+  int get _serverPort =>
+      int.tryParse(_serverPortController.text.trim()) ?? 18080;
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
   String get _visionroamPath =>
       _expandHome(_visionroamPathController.text.trim());
@@ -111,6 +114,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _backendPathController = TextEditingController();
     _sshUserController = TextEditingController();
     _serverStartCmdController = TextEditingController();
+    _serverPortController = TextEditingController();
     _mobilePathController = TextEditingController();
     _visionroamPathController = TextEditingController();
     _visionroamBinDirController = TextEditingController();
@@ -138,6 +142,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _backendPathController.dispose();
     _sshUserController.dispose();
     _serverStartCmdController.dispose();
+    _serverPortController.dispose();
     _mobilePathController.dispose();
     _visionroamPathController.dispose();
     _visionroamBinDirController.dispose();
@@ -178,6 +183,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
         backendPath: _backendPath,
         sshUser: _sshUser,
         serverStartCmd: _serverStartCmd,
+        serverPort: _serverPort,
         mobilePath: _mobilePath,
         visionroamPath: _visionroamPath,
         visionroamBinDir: _visionroamBinDir,
@@ -220,6 +226,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (serverStartCmd.isNotEmpty) {
         _serverStartCmdController.text = serverStartCmd;
       }
+      final serverPort = (decoded['serverPort'] ?? '').toString();
+      if (serverPort.isNotEmpty) _serverPortController.text = serverPort;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
       final visionroamPath = (decoded['visionroamPath'] ?? '').toString();
       final visionroamBinDir = (decoded['visionroamBinDir'] ?? '').toString();
@@ -259,6 +267,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'backendDir': _ftpBackendDirController.text.trim(),
       'sshUser': _sshUserController.text.trim(),
       'serverStartCmd': _serverStartCmdController.text.trim(),
+      'serverPort': _serverPort,
       'mobilePath': _mobilePathController.text.trim(),
       'visionroamPath': _visionroamPathController.text.trim(),
       'visionroamBinDir': _visionroamBinDirController.text.trim(),
@@ -363,6 +372,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   backendPathController: _backendPathController,
                   sshUserController: _sshUserController,
                   serverStartCmdController: _serverStartCmdController,
+                  serverPortController: _serverPortController,
                   mobilePathController: _mobilePathController,
                   visionroamPathController: _visionroamPathController,
                   visionroamBinDirController: _visionroamBinDirController,

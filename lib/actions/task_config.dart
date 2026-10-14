@@ -10,6 +10,7 @@ class TaskConfig {
   final String backendPath;
   final String sshUser;
   final String serverStartCmd;
+  final int serverPort;
   final String mobilePath;
   final String visionroamPath;
   final String visionroamBinDir;
@@ -26,6 +27,7 @@ class TaskConfig {
     required this.backendPath,
     required this.sshUser,
     required this.serverStartCmd,
+    required this.serverPort,
     required this.mobilePath,
     required this.visionroamPath,
     required this.visionroamBinDir,

@@ -11,6 +11,7 @@ class SettingsPage extends StatefulWidget {
   final TextEditingController backendPathController;
   final TextEditingController sshUserController;
   final TextEditingController serverStartCmdController;
+  final TextEditingController serverPortController;
   final TextEditingController mobilePathController;
   final TextEditingController visionroamPathController;
   final TextEditingController visionroamBinDirController;
@@ -31,6 +32,7 @@ class SettingsPage extends StatefulWidget {
     required this.backendPathController,
     required this.sshUserController,
     required this.serverStartCmdController,
+    required this.serverPortController,
     required this.mobilePathController,
     required this.visionroamPathController,
     required this.visionroamBinDirController,
@@ -98,6 +100,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   TextField(
                     controller: widget.serverStartCmdController,
                     decoration: const InputDecoration(labelText: '后端启动命令（远程）'),
+                  ),
+                  TextField(
+                    controller: widget.serverPortController,
+                    decoration: const InputDecoration(
+                        labelText: '后端端口（部署后按此端口健康检查）'),
+                    keyboardType: TextInputType.number,
                   ),
                   TextField(
                     controller: widget.mobilePathController,
