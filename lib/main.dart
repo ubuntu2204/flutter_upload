@@ -72,6 +72,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _visionroamPathController;
   late final TextEditingController _visionroamBinDirController;
   late final TextEditingController _visionroamServiceController;
+  late final TextEditingController _visionroamAdminPathController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -93,6 +94,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
   String get _visionroamBinDir =>
       _visionroamBinDirController.text.trim().replaceAll('\\', '/');
   String get _visionroamService => _visionroamServiceController.text.trim();
+  String get _visionroamAdminPath =>
+      _expandHome(_visionroamAdminPathController.text.trim());
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -119,6 +122,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _visionroamPathController = TextEditingController();
     _visionroamBinDirController = TextEditingController();
     _visionroamServiceController = TextEditingController();
+    _visionroamAdminPathController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
@@ -147,6 +151,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _visionroamPathController.dispose();
     _visionroamBinDirController.dispose();
     _visionroamServiceController.dispose();
+    _visionroamAdminPathController.dispose();
     super.dispose();
   }
 
@@ -188,6 +193,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
         visionroamPath: _visionroamPath,
         visionroamBinDir: _visionroamBinDir,
         visionroamService: _visionroamService,
+        visionroamAdminPath: _visionroamAdminPath,
       );
 
   Future<void> _loadFtpConfig() async {
@@ -241,6 +247,11 @@ class _UploadHomePageState extends State<UploadHomePage> {
       if (visionroamService.isNotEmpty) {
         _visionroamServiceController.text = visionroamService;
       }
+      final visionroamAdminPath =
+          (decoded['visionroamAdminPath'] ?? '').toString();
+      if (visionroamAdminPath.isNotEmpty) {
+        _visionroamAdminPathController.text = visionroamAdminPath;
+      }
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -272,6 +283,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'visionroamPath': _visionroamPathController.text.trim(),
       'visionroamBinDir': _visionroamBinDirController.text.trim(),
       'visionroamService': _visionroamServiceController.text.trim(),
+      'visionroamAdminPath': _visionroamAdminPathController.text.trim(),
     };
     try {
       await file.writeAsString(_yamlEncode(config));
@@ -377,6 +389,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   visionroamPathController: _visionroamPathController,
                   visionroamBinDirController: _visionroamBinDirController,
                   visionroamServiceController: _visionroamServiceController,
+                  visionroamAdminPathController: _visionroamAdminPathController,
                   onSave: _saveFtpConfig,
                   onHostChanged: _checkConnectivity,
                 ),
@@ -517,7 +530,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                         ? _handleVisionroam
                         : null,
                     icon: const Icon(Icons.public),
-                    label: const Text("部署 VisionRoam 后端"),
+                    label: const Text("部署 VisionRoam 前后端"),
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.deepPurple.shade700,

@@ -46,3 +46,6 @@ visionroamBinDir: '/var/www/visionroam/bin'
 
 # VisionRoam systemd 服务名（留空则默认 visionroam.service）
 visionroamService: 'visionroam.service'
+
+# Flutter Web 管理后台源码目录（留空则自动用 项目路径/packages/admin_web）
+visionroamAdminPath: ''

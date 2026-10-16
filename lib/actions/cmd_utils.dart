@@ -2,18 +2,20 @@ import 'dart:convert';
 import 'dart:io';
 
 /// 在本地 [workingDir] 执行 [cmd] + [args]，记录日志到 [addLog]。
+/// [tag] 为任务归属标签（并行执行时用于区分日志来源）。
 Future<bool> runCmd(
   String cmd,
   List<String> args,
   String workingDir,
   String desc,
-  void Function(String) addLog,
-) async {
+  void Function(String) addLog, {
+  String tag = '',
+}) async {
   final fullCommand = '$cmd ${args.join(' ')}';
   final startTime = DateTime.now().toString().split('.').first;
   addLog('----------------------------------------\n'
       '开始: $startTime\n'
-      '任务: $desc\n'
+      '任务: $tag $desc\n'
       '目录: $workingDir\n'
       '命令: $fullCommand\n');
   try {
@@ -78,6 +80,7 @@ Future<bool> sshRunCmd(
 }
 
 /// 通过 scp 将本地单个文件上传到远程 [remotePath]（需配置免密登录）。
+/// [tag] 为任务归属标签（并行上传时用于区分日志来源）。
 Future<bool> scpUploadFile(
   String host,
   String user,
@@ -86,11 +89,12 @@ Future<bool> scpUploadFile(
   String desc,
   void Function(String) addLog, {
   int connectTimeout = 10,
+  String tag = '',
 }) async {
   final startTime = DateTime.now().toString().split('.').first;
   addLog('----------------------------------------\n'
       '开始: $startTime\n'
-      '任务: $desc\n'
+      '任务: $tag $desc\n'
       '命令: scp $localPath $user@$host:$remotePath\n');
   try {
     final result = await Process.run('scp', [

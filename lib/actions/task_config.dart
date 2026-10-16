@@ -15,6 +15,8 @@ class TaskConfig {
   final String visionroamPath;
   final String visionroamBinDir;
   final String visionroamService;
+  /// Flutter Web 管理后台源码目录；留空 = 主项目下 packages/admin_web
+  final String visionroamAdminPath;
 
   const TaskConfig({
     required this.ftpHost,
@@ -32,5 +34,6 @@ class TaskConfig {
     required this.visionroamPath,
     required this.visionroamBinDir,
     required this.visionroamService,
+    required this.visionroamAdminPath,
   });
 }

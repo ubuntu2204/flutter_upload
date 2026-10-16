@@ -16,6 +16,7 @@ class SettingsPage extends StatefulWidget {
   final TextEditingController visionroamPathController;
   final TextEditingController visionroamBinDirController;
   final TextEditingController visionroamServiceController;
+  final TextEditingController visionroamAdminPathController;
 
   final Future<void> Function() onSave;
   final VoidCallback onHostChanged;
@@ -37,6 +38,7 @@ class SettingsPage extends StatefulWidget {
     required this.visionroamPathController,
     required this.visionroamBinDirController,
     required this.visionroamServiceController,
+    required this.visionroamAdminPathController,
     required this.onSave,
     required this.onHostChanged,
   });
@@ -125,6 +127,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     controller: widget.visionroamServiceController,
                     decoration: const InputDecoration(
                         labelText: 'VisionRoam systemd 服务名'),
+                  ),
+                  TextField(
+                    controller: widget.visionroamAdminPathController,
+                    decoration: const InputDecoration(
+                        labelText: 'VisionRoam 后台源码路径（留空=项目下 packages/admin_web）'),
                   ),
                   const SizedBox(height: 20),
                   Row(
