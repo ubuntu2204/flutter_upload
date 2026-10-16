@@ -12,7 +12,7 @@ Flutter 桌面工具（Linux），用于打包并部署 maintenance 等项目的
 | 打包重命名部署服务器 | 按版本重命名打包产物并部署 |
 | 启动后端 / 停止后端 | 本地运行 `dart run bin/server.dart`（工作目录取自设置的「后端本地路径」backendPath），关闭本程序后端继续运行 |
 | 部署 VisionRoam 后端 | AOT 编译 VisionRoam Jaspr SSR 后端，scp 上传、备份旧版、替换、重启 systemd 服务并做健康检查 |
-| 本地构建并运行 VisionRoam | 本地一键：`flutter build web --base-href /admin/` 构建后台 → 复制到 `web/admin/` → 重启 `dart run lib/main.server.dart`（跑最新代码，不连服务器）|
+| 本地构建并运行 VisionRoam | 本地一键并行构建：后台 `flutter build web --base-href /admin/` ‖ 主项目依赖拉取 ‖ `build_runner` ‖ `dart compile exe`，服务就绪不等待后台构建，完成后自动更新 `web/admin/`（跑最新代码，不连服务器）|
 
 ## 配置
 
