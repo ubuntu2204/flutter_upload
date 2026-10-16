@@ -11,6 +11,7 @@ import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
 import 'actions/local_server_action.dart';
 import 'actions/visionroam_action.dart';
+import 'actions/visionroam_local_action.dart';
 import 'settings_page.dart';
 
 void main(List<String> args) {
@@ -57,6 +58,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
   Timer? _timer;
   Process? _serverProcess; // 本地后端进程（启动后端/停止后端）
   bool _isServerRunning = false; // 后端服务是否正在运行
+  Process? _visionroamProcess; // VisionRoam 本地服务进程（一键构建后台+重启，复用）
   late final TextEditingController _ftpHostController;
   late final TextEditingController _ftpPortController;
   late final TextEditingController _ftpUserController;
@@ -363,6 +365,18 @@ class _UploadHomePageState extends State<UploadHomePage> {
     setState(() => _isProcessing = false);
   }
 
+  Future<void> _handleVisionroamLocal() async {
+    setState(() => _isProcessing = true);
+    final p = await runVisionroamLocal(
+        _buildConfig(), _visionroamProcess, _addLog);
+    if (mounted) {
+      setState(() {
+        _visionroamProcess = p;
+        _isProcessing = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -534,6 +548,18 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.deepPurple.shade700,
+                        foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: !_isProcessing ? _handleVisionroamLocal : null,
+                    icon: const Icon(Icons.build_circle_outlined),
+                    label: const Text("本地构建并运行 VisionRoam"),
+                    style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        backgroundColor: Colors.teal.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
