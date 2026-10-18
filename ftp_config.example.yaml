@@ -37,15 +37,3 @@ serverPort: 18080
 
 # 移动端本地路径，支持 ~/ 开头的路径
 mobilePath: '~/project/mobile'
-
-# VisionRoam 项目本地路径（含 lib/main.server.dart 与 web/），支持 ~/ 开头的路径
-visionroamPath: '~/project/visionroam'
-
-# VisionRoam 远程部署目录（服务器上 server 二进制所在目录）
-visionroamBinDir: '/var/www/visionroam/bin'
-
-# VisionRoam systemd 服务名（留空则默认 visionroam.service）
-visionroamService: 'visionroam.service'
-
-# Flutter Web 管理后台源码目录（留空则自动用 项目路径/packages/admin_web）
-visionroamAdminPath: ''

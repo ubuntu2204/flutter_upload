@@ -11,8 +11,7 @@ Flutter 桌面工具（Linux），用于打包并部署 maintenance 等项目的
 | 部署到移动设备 | 将构建产物部署到移动设备 |
 | 打包重命名部署服务器 | 按版本重命名打包产物并部署 |
 | 启动后端 / 停止后端 | 本地运行 `dart run bin/server.dart`（工作目录取自设置的「后端本地路径」backendPath），关闭本程序后端继续运行 |
-| 部署 VisionRoam 后端 | AOT 编译 VisionRoam Jaspr SSR 后端，scp 上传、备份旧版、替换、重启 systemd 服务并做健康检查 |
-| 本地构建并运行 VisionRoam | 本地一键并行构建：后台 `flutter build web --base-href /admin/` ‖ 主项目依赖拉取 ‖ `build_runner` ‖ `dart compile exe`，服务就绪不等待后台构建，完成后自动更新 `web/admin/`（跑最新代码，不连服务器）|
+| ~~VisionRoam 相关~~ | 已迁至 visionroam 仓库的 Flutter Linux 桌面后台（`packages/admin` 运维页）|
 
 ## 配置
 
@@ -27,7 +26,7 @@ cp ftp_config.example.yaml ftp_config.yaml
 - 本地路径支持 `~/` 开头（自动展开为用户主目录）
 
 主要配置项：FTP 主机/端口/账号、前后端本地路径与远程目录、SSH 用户、远程启动命令、
-移动端路径、VisionRoam 项目路径 / 远程部署目录 / systemd 服务名。
+移动端路径。（VisionRoam 相关配置已迁至其桌面后台）
 
 ## 远程后端服务管理（systemd）
 

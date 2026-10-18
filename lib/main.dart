@@ -10,8 +10,6 @@ import 'actions/backend_action.dart';
 import 'actions/mobile_action.dart';
 import 'actions/mobile_rename_action.dart';
 import 'actions/local_server_action.dart';
-import 'actions/visionroam_action.dart';
-import 'actions/visionroam_local_action.dart';
 import 'settings_page.dart';
 
 void main(List<String> args) {
@@ -58,7 +56,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   Timer? _timer;
   Process? _serverProcess; // 本地后端进程（启动后端/停止后端）
   bool _isServerRunning = false; // 后端服务是否正在运行
-  Process? _visionroamProcess; // VisionRoam 本地服务进程（一键构建后台+重启，复用）
   late final TextEditingController _ftpHostController;
   late final TextEditingController _ftpPortController;
   late final TextEditingController _ftpUserController;
@@ -71,10 +68,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _serverPortController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _visionroamPathController;
-  late final TextEditingController _visionroamBinDirController;
-  late final TextEditingController _visionroamServiceController;
-  late final TextEditingController _visionroamAdminPathController;
 
   String get _ftpHost => _ftpHostController.text.trim();
   int get _ftpPort => int.tryParse(_ftpPortController.text.trim()) ?? 21;
@@ -91,13 +84,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   int get _serverPort =>
       int.tryParse(_serverPortController.text.trim()) ?? 18080;
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
-  String get _visionroamPath =>
-      _expandHome(_visionroamPathController.text.trim());
-  String get _visionroamBinDir =>
-      _visionroamBinDirController.text.trim().replaceAll('\\', '/');
-  String get _visionroamService => _visionroamServiceController.text.trim();
-  String get _visionroamAdminPath =>
-      _expandHome(_visionroamAdminPathController.text.trim());
 
   String _expandHome(String path) {
     if (path.startsWith('~/')) {
@@ -121,10 +107,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _serverStartCmdController = TextEditingController();
     _serverPortController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _visionroamPathController = TextEditingController();
-    _visionroamBinDirController = TextEditingController();
-    _visionroamServiceController = TextEditingController();
-    _visionroamAdminPathController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadFtpConfig();
       if (!mounted) return;
@@ -150,10 +132,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _serverStartCmdController.dispose();
     _serverPortController.dispose();
     _mobilePathController.dispose();
-    _visionroamPathController.dispose();
-    _visionroamBinDirController.dispose();
-    _visionroamServiceController.dispose();
-    _visionroamAdminPathController.dispose();
     super.dispose();
   }
 
@@ -192,10 +170,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
         serverStartCmd: _serverStartCmd,
         serverPort: _serverPort,
         mobilePath: _mobilePath,
-        visionroamPath: _visionroamPath,
-        visionroamBinDir: _visionroamBinDir,
-        visionroamService: _visionroamService,
-        visionroamAdminPath: _visionroamAdminPath,
       );
 
   Future<void> _loadFtpConfig() async {
@@ -237,23 +211,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       final serverPort = (decoded['serverPort'] ?? '').toString();
       if (serverPort.isNotEmpty) _serverPortController.text = serverPort;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
-      final visionroamPath = (decoded['visionroamPath'] ?? '').toString();
-      final visionroamBinDir = (decoded['visionroamBinDir'] ?? '').toString();
-      final visionroamService = (decoded['visionroamService'] ?? '').toString();
-      if (visionroamPath.isNotEmpty) {
-        _visionroamPathController.text = visionroamPath;
-      }
-      if (visionroamBinDir.isNotEmpty) {
-        _visionroamBinDirController.text = visionroamBinDir;
-      }
-      if (visionroamService.isNotEmpty) {
-        _visionroamServiceController.text = visionroamService;
-      }
-      final visionroamAdminPath =
-          (decoded['visionroamAdminPath'] ?? '').toString();
-      if (visionroamAdminPath.isNotEmpty) {
-        _visionroamAdminPathController.text = visionroamAdminPath;
-      }
       _addLog(
         "已加载配置文件: ${file.path}\n"
         "FTP: ${_ftpHostController.text.trim()}:${_ftpPortController.text.trim()}\n"
@@ -282,10 +239,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'serverPort': _serverPort,
       'mobilePath': _mobilePathController.text.trim(),
-      'visionroamPath': _visionroamPathController.text.trim(),
-      'visionroamBinDir': _visionroamBinDirController.text.trim(),
-      'visionroamService': _visionroamServiceController.text.trim(),
-      'visionroamAdminPath': _visionroamAdminPathController.text.trim(),
     };
     try {
       await file.writeAsString(_yamlEncode(config));
@@ -359,24 +312,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
-  Future<void> _handleVisionroam() async {
-    setState(() => _isProcessing = true);
-    await runVisionroam(_buildConfig(), _addLog);
-    setState(() => _isProcessing = false);
-  }
-
-  Future<void> _handleVisionroamLocal() async {
-    setState(() => _isProcessing = true);
-    final p = await runVisionroamLocal(
-        _buildConfig(), _visionroamProcess, _addLog);
-    if (mounted) {
-      setState(() {
-        _visionroamProcess = p;
-        _isProcessing = false;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -400,10 +335,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   serverStartCmdController: _serverStartCmdController,
                   serverPortController: _serverPortController,
                   mobilePathController: _mobilePathController,
-                  visionroamPathController: _visionroamPathController,
-                  visionroamBinDirController: _visionroamBinDirController,
-                  visionroamServiceController: _visionroamServiceController,
-                  visionroamAdminPathController: _visionroamAdminPathController,
                   onSave: _saveFtpConfig,
                   onHostChanged: _checkConnectivity,
                 ),
@@ -530,36 +461,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                     style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (_isConnected && !_isProcessing)
-                        ? _handleVisionroam
-                        : null,
-                    icon: const Icon(Icons.public),
-                    label: const Text("部署 VisionRoam 前后端"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.deepPurple.shade700,
-                        foregroundColor: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleVisionroamLocal : null,
-                    icon: const Icon(Icons.build_circle_outlined),
-                    label: const Text("本地构建并运行 VisionRoam"),
-                    style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        backgroundColor: Colors.teal.shade700,
                         foregroundColor: Colors.white),
                   ),
                 ),
