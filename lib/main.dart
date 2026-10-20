@@ -423,7 +423,9 @@ class _UploadHomePageState extends State<UploadHomePage> {
                 const SizedBox(width: 20),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: !_isProcessing ? _handleMobileRename : null,
+                    onPressed: (_isConnected && !_isProcessing)
+                        ? _handleMobileRename
+                        : null,
                     icon: const Icon(Icons.drive_file_rename_outline),
                     label: const Text("打包重命名部署服务器"),
                     style: ElevatedButton.styleFrom(
