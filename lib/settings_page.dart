@@ -13,6 +13,8 @@ class SettingsPage extends StatefulWidget {
   final TextEditingController serverStartCmdController;
   final TextEditingController serverPortController;
   final TextEditingController mobilePathController;
+  final TextEditingController authTokenController;
+  final TextEditingController floorOutputDirController;
 
   final Future<void> Function() onSave;
   final VoidCallback onHostChanged;
@@ -31,6 +33,8 @@ class SettingsPage extends StatefulWidget {
     required this.serverStartCmdController,
     required this.serverPortController,
     required this.mobilePathController,
+    required this.authTokenController,
+    required this.floorOutputDirController,
     required this.onSave,
     required this.onHostChanged,
   });
@@ -97,13 +101,32 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   TextField(
                     controller: widget.serverPortController,
-                    decoration: const InputDecoration(
-                        labelText: '后端端口（部署后按此端口健康检查）'),
+                    decoration:
+                        const InputDecoration(labelText: '后端端口（部署后按此端口健康检查）'),
                     keyboardType: TextInputType.number,
                   ),
                   TextField(
                     controller: widget.mobilePathController,
                     decoration: const InputDecoration(labelText: '移动端本地路径'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('楼层管理',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  TextField(
+                    controller: widget.authTokenController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: '楼层接口登录 Token（Authorization）',
+                      helperText:
+                          '浏览器 localStorage 的 auth._token.local，形如 Bearer eyJ...',
+                    ),
+                  ),
+                  TextField(
+                    controller: widget.floorOutputDirController,
+                    decoration: const InputDecoration(
+                      labelText: '楼层数据本地目录',
+                      helperText: '爬取的 floors.json 与 PNG 图片保存位置',
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Row(
