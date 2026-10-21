@@ -38,8 +38,5 @@ serverPort: 18080
 # 移动端本地路径，支持 ~/ 开头的路径
 mobilePath: '~/project/mobile'
 
-# 楼层管理：房产平台接口登录 Token（浏览器 localStorage 的 auth._token.local，形如 Bearer eyJ...）
-authToken: ''
-
-# 楼层管理：爬取的 floors.json 与 PNG 图片保存目录，支持 ~/ 开头的路径
+# 楼层管理：爬取的 floors.json、details 与 images 保存目录，支持 ~/ 开头的路径
 floorOutputDir: '~/floor_data'

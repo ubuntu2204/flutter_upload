@@ -11,7 +11,7 @@ Flutter 桌面工具（Linux），用于打包并部署 maintenance 等项目的
 | 部署到移动设备 | 将构建产物部署到移动设备 |
 | 打包重命名部署服务器 | 按版本重命名打包产物并部署 |
 | 启动后端 / 停止后端 | 本地运行 `dart run bin/server.dart`（工作目录取自设置的「后端本地路径」backendPath），关闭本程序后端继续运行 |
-| 楼层管理 | 输入楼栋页面链接与登录 Token，爬取楼层树、楼层详情与户型图，归档到本地目录 |
+| 楼层管理 | 通过本地 Chrome MCP 复用浏览器登录态，选择校区/楼宇并爬取楼层详情与户型图 |
 | ~~VisionRoam 相关~~ | 已迁至 visionroam 仓库的 Flutter Linux 桌面后台（`packages/admin` 运维页）|
 
 ## 配置
@@ -27,21 +27,26 @@ cp ftp_config.example.yaml ftp_config.yaml
 - 本地路径支持 `~/` 开头（自动展开为用户主目录）
 
 主要配置项：FTP 主机/端口/账号、前后端本地路径与远程目录、SSH 用户、远程启动命令、
-移动端路径；楼层管理的 `authToken` 与 `floorOutputDir`。
+移动端路径；楼层管理的 `floorOutputDir`。
 （VisionRoam 相关配置已迁至其桌面后台）
 
-## 楼层管理
+## 楼层管理（Chrome MCP）
 
-点击主界面「楼层管理」，粘贴楼栋页面链接后点击「爬取楼层」：
+点击主界面「楼层管理」，流程：
 
-1. 调用 `/api/house-base/personal/visual/building/floor/tree` 获取校区 → 楼栋 → 楼层树；
-2. 逐层调用 `/api/house-base/personal/visual/building/floor/{id}?type=byDep` 获取楼层详情；
-3. 下载 `/api/base/r/{cadPath}` 户型图（平台实际返回 PNG/JPEG，按文件头保存为对应扩展名）；
-4. 输出目录下保存 `floors.json`、`details/` 与 `images/`。
+1. 点击「启动登录 Chrome」，应用会在独立配置目录
+   `~/.config/flutter_upload/chrome-profile` 启动 Chrome（调试端口 9222）；
+2. 在打开的 Chrome 窗口手动登录房产平台；
+3. 点击「加载楼栋」，应用通过 `npx` 启动本地 `chrome-devtools-mcp`，
+   连接该 Chrome 并在页面上下文调用接口，加载全部校区/楼栋；
+4. 在「校区」「楼宇」列表中选择目标楼栋（楼宇支持输入关键字筛选）；
+   楼宇列表会按本地 `floors.json` 与图片显示「已完成 / 未完成」，
+   楼层列表也会显示每层的获取状态；
+5. 点击「爬取当前楼栋」，输出目录下保存 `floors.json`、`details/` 与 `images/`。
 
-接口需要登录态：在浏览器开发者工具 → Application → Local Storage 中找到
-`auth._token.local`，将其完整值（形如 `Bearer eyJ...`）填入 Token 输入框。
-Token 与输出目录会在爬取成功后写入 `ftp_config.yaml`。
+依赖：本机 Chrome 与 Node.js（`npx` 可用）。首次加载会下载
+`chrome-devtools-mcp@1.11.0`。登录态保存在专用 Chrome 配置目录中，
+过期后重新在 Chrome 里登录即可，无需在应用中填写 Token。
 
 ## 远程后端服务管理（systemd）
 

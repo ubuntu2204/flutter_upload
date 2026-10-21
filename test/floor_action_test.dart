@@ -123,6 +123,66 @@ void main() {
     });
   });
 
+  group('BuildingStatus', () {
+    FloorInfo info(String id, {String? image, String? detail}) => FloorInfo(
+          id: id,
+          name: id,
+          buildingId: 'building-1',
+          buildingName: '主楼',
+          campusId: 'campus-1',
+          campusName: '南湖校区',
+          cadPath: image == null ? '' : 'cad-$id',
+          imagePath: image,
+          detailPath: detail,
+          roomCount: 1,
+          raw: const {},
+        );
+
+    FloorCrawlResult result(List<FloorInfo> floors) => FloorCrawlResult(
+          sourceUrl: 'http://example.com',
+          origin: 'http://example.com',
+          buildingId: 'building-1',
+          buildingName: '主楼',
+          campusId: 'campus-1',
+          campusName: '南湖校区',
+          floors: floors,
+          outputDir: '/tmp',
+          manifestPath: '/tmp/floors.json',
+          crawledAt: DateTime(2026, 10, 21),
+        );
+
+    test('所有楼层都拿到图片才算已完成', () {
+      final status = BuildingStatus.fromResult(
+        2,
+        result([
+          info('1', image: '/tmp/1.jpg', detail: '/tmp/1.json'),
+          info('2', image: '/tmp/2.png', detail: '/tmp/2.json'),
+        ]),
+      );
+      expect(status.completed, isTrue);
+      expect(status.crawledFloors, 2);
+      expect(status.imageCount, 2);
+      expect(status.label, '已完成');
+    });
+
+    test('缺图片或没有本地数据时为未完成', () {
+      final missingImage = BuildingStatus.fromResult(
+        2,
+        result([
+          info('1', image: '/tmp/1.jpg', detail: '/tmp/1.json'),
+          info('2'),
+        ]),
+      );
+      expect(missingImage.completed, isFalse);
+      expect(missingImage.imageCount, 1);
+      expect(missingImage.label, '未完成');
+
+      final empty = BuildingStatus.fromResult(3, null);
+      expect(empty.completed, isFalse);
+      expect(empty.crawledFloors, 0);
+    });
+  });
+
   group('defaultFloorSelectionIndex', () {
     FloorInfo floor(String name) => FloorInfo(
           id: name,

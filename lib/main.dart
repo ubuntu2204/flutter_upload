@@ -70,7 +70,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   late final TextEditingController _serverStartCmdController;
   late final TextEditingController _serverPortController;
   late final TextEditingController _mobilePathController;
-  late final TextEditingController _authTokenController;
   late final TextEditingController _floorOutputDirController;
 
   String get _ftpHost => _ftpHostController.text.trim();
@@ -88,7 +87,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
   int get _serverPort =>
       int.tryParse(_serverPortController.text.trim()) ?? 18080;
   String get _mobilePath => _expandHome(_mobilePathController.text.trim());
-  String get _authToken => _authTokenController.text.trim();
   String get _floorOutputDir =>
       _expandHome(_floorOutputDirController.text.trim());
 
@@ -114,7 +112,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _serverStartCmdController = TextEditingController();
     _serverPortController = TextEditingController();
     _mobilePathController = TextEditingController();
-    _authTokenController = TextEditingController();
     _floorOutputDirController =
         TextEditingController(text: defaultFloorOutputDir());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -142,7 +139,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
     _serverStartCmdController.dispose();
     _serverPortController.dispose();
     _mobilePathController.dispose();
-    _authTokenController.dispose();
     _floorOutputDirController.dispose();
     super.dispose();
   }
@@ -223,8 +219,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       final serverPort = (decoded['serverPort'] ?? '').toString();
       if (serverPort.isNotEmpty) _serverPortController.text = serverPort;
       if (mobilePath.isNotEmpty) _mobilePathController.text = mobilePath;
-      final authToken = (decoded['authToken'] ?? '').toString();
-      if (authToken.isNotEmpty) _authTokenController.text = authToken;
       final floorOutputDir = (decoded['floorOutputDir'] ?? '').toString();
       if (floorOutputDir.isNotEmpty) {
         _floorOutputDirController.text = floorOutputDir;
@@ -257,7 +251,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
       'serverStartCmd': _serverStartCmdController.text.trim(),
       'serverPort': _serverPort,
       'mobilePath': _mobilePathController.text.trim(),
-      'authToken': _authTokenController.text.trim(),
       'floorOutputDir': _floorOutputDirController.text.trim(),
     };
     try {
@@ -332,9 +325,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
     }
   }
 
-  /// 楼层管理页回写登录态：更新内存中的 Token / 目录并保存配置。
-  Future<void> _handleFloorAuthSaved(String token, String outputDir) async {
-    _authTokenController.text = token;
+  /// 楼层管理页回写输出目录：更新内存并保存配置。
+  Future<void> _handleFloorOutputSaved(String outputDir) async {
     _floorOutputDirController.text = outputDir;
     await _saveFtpConfig();
   }
@@ -344,9 +336,8 @@ class _UploadHomePageState extends State<UploadHomePage> {
       context,
       MaterialPageRoute(
         builder: (_) => FloorPage(
-          initialToken: _authToken,
           initialOutputDir: _floorOutputDir,
-          onAuthSaved: _handleFloorAuthSaved,
+          onOutputDirSaved: _handleFloorOutputSaved,
         ),
       ),
     );
@@ -380,7 +371,6 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   serverStartCmdController: _serverStartCmdController,
                   serverPortController: _serverPortController,
                   mobilePathController: _mobilePathController,
-                  authTokenController: _authTokenController,
                   floorOutputDirController: _floorOutputDirController,
                   onSave: _saveFtpConfig,
                   onHostChanged: _checkConnectivity,
@@ -490,7 +480,7 @@ class _UploadHomePageState extends State<UploadHomePage> {
                   child: OutlinedButton.icon(
                     onPressed: _openFloorManager,
                     icon: const Icon(Icons.apartment),
-                    label: const Text("楼层管理（爬取楼层 / 户型图）"),
+                    label: const Text("楼层管理（Chrome MCP / 户型图）"),
                     style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 18)),
                   ),

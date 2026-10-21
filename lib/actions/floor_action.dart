@@ -205,6 +205,37 @@ class FloorCrawlResult {
   });
 }
 
+/// 楼栋本地获取状态。
+class BuildingStatus {
+  final int totalFloors;
+  final int crawledFloors;
+  final int imageCount;
+  final bool completed;
+
+  const BuildingStatus({
+    required this.totalFloors,
+    required this.crawledFloors,
+    required this.imageCount,
+    required this.completed,
+  });
+
+  /// 以「所有楼层都拿到户型图」作为完成标准。
+  factory BuildingStatus.fromResult(int totalFloors, FloorCrawlResult? result) {
+    final floors = result?.floors ?? const <FloorInfo>[];
+    final crawled =
+        floors.where((f) => f.detailPath != null || f.hasImage).length;
+    final images = floors.where((f) => f.hasImage).length;
+    return BuildingStatus(
+      totalFloors: totalFloors,
+      crawledFloors: crawled,
+      imageCount: images,
+      completed: totalFloors > 0 && images >= totalFloors,
+    );
+  }
+
+  String get label => completed ? '已完成' : '未完成';
+}
+
 /// 楼层爬取器：登录态通过 Authorization 头传入。
 ///
 /// 流程：
@@ -543,10 +574,10 @@ class FloorCrawler {
     if (!_looksLikeImage(res.bytes)) {
       throw FloorCrawlException('返回内容不是图片: ${res.preview()}');
     }
-    final file = File('$targetPrefix.${_imageExtension(res.bytes)}');
+    final file = File('$targetPrefix.${imageExtensionFromBytes(res.bytes)}');
     await file.parent.create(recursive: true);
     await file.writeAsBytes(res.bytes);
-    addLog('  已保存: ${file.path} (${_formatBytes(res.bytes.length)})');
+    addLog('  已保存: ${file.path} (${formatBytes(res.bytes.length)})');
     return file.path;
   }
 
@@ -585,34 +616,6 @@ class FloorCrawler {
     // GIF
     if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) return true;
     return false;
-  }
-
-  /// 按文件头判断真实图片格式。平台图片接口的 Content-Type 声称是 PNG，
-  /// 但实际存在返回 JPEG 的情况，因此扩展名以字节为准。
-  String _imageExtension(List<int> bytes) {
-    if (bytes.length >= 8 &&
-        bytes[0] == 0x89 &&
-        bytes[1] == 0x50 &&
-        bytes[2] == 0x4E &&
-        bytes[3] == 0x47) {
-      return 'png';
-    }
-    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
-      return 'jpg';
-    }
-    if (bytes.length >= 3 &&
-        bytes[0] == 0x47 &&
-        bytes[1] == 0x49 &&
-        bytes[2] == 0x46) {
-      return 'gif';
-    }
-    return 'png';
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '${bytes}B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
-    return '${(bytes / 1024 / 1024).toStringAsFixed(1)}MB';
   }
 }
 
@@ -658,6 +661,33 @@ String sanitizeFileName(String name) {
       .replaceAll(RegExp(r'^_+|_+$'), '');
   if (cleaned.isEmpty) return 'floor';
   return cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned;
+}
+
+/// 按文件头判断图片真实格式（平台 Content-Type 可能是错误的）。
+String imageExtensionFromBytes(List<int> bytes) {
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return 'png';
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+    return 'jpg';
+  }
+  if (bytes.length >= 3 &&
+      bytes[0] == 0x47 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46) {
+    return 'gif';
+  }
+  return 'png';
+}
+
+String formatBytes(int bytes) {
+  if (bytes < 1024) return '${bytes}B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)}MB';
 }
 
 class FloorCrawlException implements Exception {
