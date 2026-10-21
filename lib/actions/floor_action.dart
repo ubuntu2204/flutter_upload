@@ -164,6 +164,20 @@ class FloorInfo {
   bool get hasImage => imagePath != null;
 }
 
+/// 默认选中一层（F1）；楼层列表通常以 B1 开头，直接取 0 会默认显示地下室。
+/// 找不到一层时回退到第一层。
+int defaultFloorSelectionIndex(List<FloorInfo> floors) {
+  if (floors.isEmpty) return 0;
+  for (var i = 0; i < floors.length; i++) {
+    final name =
+        floors[i].name.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    if (name == '一层' || RegExp(r'^(F|L)?0?1(F|楼|层)?$').hasMatch(name)) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 /// 一次爬取任务的汇总结果。
 class FloorCrawlResult {
   final String sourceUrl;

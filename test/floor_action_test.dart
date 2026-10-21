@@ -123,6 +123,39 @@ void main() {
     });
   });
 
+  group('defaultFloorSelectionIndex', () {
+    FloorInfo floor(String name) => FloorInfo(
+          id: name,
+          name: name,
+          buildingId: 'building-1',
+          buildingName: '主楼',
+          campusId: 'campus-1',
+          campusName: '南湖校区',
+          cadPath: '',
+          imagePath: null,
+          detailPath: null,
+          roomCount: 0,
+          raw: const {},
+        );
+
+    test('列表以 B1 开头时默认选中 F1', () {
+      final floors = ['B1', 'F1', 'F2'].map(floor).toList();
+      expect(defaultFloorSelectionIndex(floors), 1);
+    });
+
+    test('兼容 1F / 01F / 一层 等命名', () {
+      expect(defaultFloorSelectionIndex([floor('1F'), floor('2F')]), 0);
+      expect(defaultFloorSelectionIndex([floor('B1'), floor('01F')]), 1);
+      expect(defaultFloorSelectionIndex([floor('B1'), floor('一层')]), 1);
+    });
+
+    test('没有一层时回退到第一层', () {
+      final floors = ['B1', 'F2'].map(floor).toList();
+      expect(defaultFloorSelectionIndex(floors), 0);
+      expect(defaultFloorSelectionIndex(const []), 0);
+    });
+  });
+
   test('完整爬取流程（本地 mock 平台）', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final authHeaders = <String?>[];

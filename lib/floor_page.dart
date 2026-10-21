@@ -92,7 +92,10 @@ class _FloorPageState extends State<FloorPage> {
         addLog: _addLog,
       ).run();
       if (!mounted) return;
-      setState(() => _result = result);
+      setState(() {
+        _result = result;
+        _selectedIndex = defaultFloorSelectionIndex(result.floors);
+      });
       _addLog('爬取完成：${result.floors.length} 层，'
           '图片 ${result.floors.where((f) => f.hasImage).length} 张');
       await widget.onAuthSaved(token, output);
