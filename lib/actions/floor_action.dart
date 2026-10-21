@@ -210,28 +210,49 @@ class BuildingStatus {
   final int totalFloors;
   final int crawledFloors;
   final int imageCount;
+
+  /// 平台实际有户型图的楼层数（cadPath 非空）。
+  final int expectedImages;
+
+  /// 已获取详情、但平台本身没有户型图的楼层数。
+  final int noImageFloors;
   final bool completed;
 
   const BuildingStatus({
     required this.totalFloors,
     required this.crawledFloors,
     required this.imageCount,
+    required this.expectedImages,
+    required this.noImageFloors,
     required this.completed,
   });
 
-  /// 以「所有楼层都拿到户型图」作为完成标准。
+  /// 完成标准：所有楼层详情都已获取，且平台存在的户型图都已下载。
+  /// 平台本身没有户型图的楼层不算未完成。
   factory BuildingStatus.fromResult(int totalFloors, FloorCrawlResult? result) {
     final floors = result?.floors ?? const <FloorInfo>[];
     final crawled =
         floors.where((f) => f.detailPath != null || f.hasImage).length;
     final images = floors.where((f) => f.hasImage).length;
+    final expectedImages = floors.where((f) => f.cadPath.isNotEmpty).length;
+    final noImageFloors = floors
+        .where((f) =>
+            f.cadPath.isEmpty &&
+            !f.hasImage &&
+            (f.detailPath != null || f.roomCount > 0))
+        .length;
     return BuildingStatus(
       totalFloors: totalFloors,
       crawledFloors: crawled,
       imageCount: images,
-      completed: totalFloors > 0 && images >= totalFloors,
+      expectedImages: expectedImages,
+      noImageFloors: noImageFloors,
+      completed:
+          totalFloors > 0 && crawled >= totalFloors && images >= expectedImages,
     );
   }
+
+  bool get hasNoImages => expectedImages == 0;
 
   String get label => completed ? '已完成' : '未完成';
 }

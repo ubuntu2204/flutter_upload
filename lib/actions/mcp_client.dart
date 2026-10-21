@@ -338,6 +338,45 @@ class McpChromeSession {
     if (result.isError) throw McpException(result.text);
   }
 
+  /// 等待页面加载完成并确认登录态可用。
+  ///
+  /// 刚导航到平台时 Nuxt 可能还在 hydration；直接调用业务接口偶尔会失败。
+  /// 这里轮询 document.readyState、localStorage Token 和一个受保护接口。
+  Future<void> waitForPlatformReady({
+    Duration timeout = const Duration(seconds: 25),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final info = await evaluate('''(() => ({
+          href: location.href,
+          ready: document.readyState,
+          hasToken: (localStorage.getItem('auth._token.local') || '').length > 0
+        }))()''');
+        if (info is Map &&
+            info['ready'] == 'complete' &&
+            info['hasToken'] == true) {
+          final status = await evaluate('''(async () => {
+            const token = localStorage.getItem('auth._token.local') || '';
+            try {
+              const res = await fetch('/api/base/personal/system/home/current', {
+                headers: { Authorization: token }
+              });
+              return res.status;
+            } catch (e) {
+              return 'ERROR';
+            }
+          })()''');
+          if (status == 200) return;
+        }
+      } catch (_) {
+        // 页面可能仍在导航/上下文重建，继续等待
+      }
+      await Future.delayed(const Duration(milliseconds: 800));
+    }
+    throw McpException('页面未就绪或登录已失效，请在 Chrome 窗口登录平台后重试。');
+  }
+
   /// 在页面上下文执行表达式。script 必须是一个返回值的表达式，
   /// 例如 `(async () => { ... })()`。
   Future<dynamic> evaluate(

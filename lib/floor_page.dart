@@ -53,6 +53,12 @@ class _FloorPageState extends State<FloorPage> {
   bool _crawling = false;
   int _crawlDone = 0;
   int _crawlTotal = 0;
+  bool _crawlAll = false;
+  bool _cancelCrawlAll = false;
+  int _crawlAllIndex = 0;
+  int _crawlAllTotal = 0;
+  int _crawlAllSuccess = 0;
+  int _crawlAllFailed = 0;
   String _log = '等待操作...';
 
   @override
@@ -77,6 +83,21 @@ class _FloorPageState extends State<FloorPage> {
     super.dispose();
   }
 
+  @override
+  void reassemble() {
+    super.reassemble();
+    // 热重载不会迁移已存在对象的字段。BuildingStatus 新增字段后，
+    // 旧实例访问新字段会抛 Null is not a subtype of int。
+    // 清空缓存并重新从本地 floors.json 构造状态。
+    _statuses = {};
+    _localResults = {};
+    _result = null;
+    _statusLoading = false;
+    if (_campuses.isNotEmpty) {
+      unawaited(_refreshLocalData());
+    }
+  }
+
   FloorNode? get _campus =>
       _firstWhereOrNull(_campuses, (c) => c.id == _campusId);
 
@@ -88,6 +109,31 @@ class _FloorPageState extends State<FloorPage> {
     return _buildings
         .where((b) => b.name.toLowerCase().contains(keyword))
         .toList();
+  }
+
+  List<FloorNode> get _incompleteBuildings => _buildings
+      .where((b) =>
+          b.children.isNotEmpty && !(_statuses[b.id]?.completed ?? false))
+      .toList();
+
+  double? get _progressValue {
+    if (_crawlAll) {
+      if (_crawlAllTotal == 0) return null;
+      final current = _crawlTotal > 0 ? _crawlDone / _crawlTotal : 0.0;
+      return (((_crawlAllIndex - 1) + current) / _crawlAllTotal)
+          .clamp(0.0, 1.0)
+          .toDouble();
+    }
+    return _crawlTotal > 0 ? _crawlDone / _crawlTotal : null;
+  }
+
+  String get _progressText {
+    if (_crawlAll) {
+      if (_crawlAllIndex == 0) return '准备批量爬取...';
+      return '批量爬取 $_crawlAllIndex/$_crawlAllTotal：'
+          '${_building?.name ?? ''} · $_crawlDone/$_crawlTotal 层';
+    }
+    return '正在爬取 $_crawlDone / $_crawlTotal 层';
   }
 
   FloorNode? get _building =>
@@ -137,7 +183,11 @@ class _FloorPageState extends State<FloorPage> {
 
   Future<McpChromeSession> _ensureSession() async {
     final existing = _session;
-    if (existing != null) return existing;
+    if (existing != null) {
+      _addLog('检查页面加载与登录状态...\n');
+      await existing.waitForPlatformReady();
+      return existing;
+    }
 
     await ensureChromeRunning(addLog: _addLog);
     final session = await startChromeMcp(
@@ -146,6 +196,8 @@ class _FloorPageState extends State<FloorPage> {
     );
     try {
       await session.navigate(platformCampusUrl);
+      _addLog('等待页面加载完成并确认登录状态...\n');
+      await session.waitForPlatformReady();
     } catch (e) {
       await session.close();
       rethrow;
@@ -221,6 +273,7 @@ class _FloorPageState extends State<FloorPage> {
   }
 
   void _selectCampus(String campusId) {
+    if (_busy) return;
     final campus = _firstWhereOrNull(_campuses, (c) => c.id == campusId);
     if (campus == null) return;
     final building =
@@ -244,6 +297,7 @@ class _FloorPageState extends State<FloorPage> {
   }
 
   Future<void> _selectBuilding(String buildingId) async {
+    if (_busy) return;
     final campus = _campus;
     final building = _firstWhereOrNull(_buildings, (b) => b.id == buildingId);
     if (campus == null || building == null) return;
@@ -454,8 +508,10 @@ class _FloorPageState extends State<FloorPage> {
         _localDataVersion++;
         _chromeState = _ChromeState.ready;
       });
+      final noImageCount = result.floors.where((f) => f.cadPath.isEmpty).length;
       _addLog('爬取完成：${result.floors.length} 层，'
-          '图片 ${result.floors.where((f) => f.hasImage).length} 张\n');
+          '图片 ${result.floors.where((f) => f.hasImage).length} 张'
+          '${noImageCount == 0 ? '' : '，$noImageCount 层平台无图'}\n');
       await widget.onOutputDirSaved(_outputController.text.trim());
     } catch (e) {
       final text = e.toString();
@@ -474,6 +530,174 @@ class _FloorPageState extends State<FloorPage> {
         setState(() {
           _busy = false;
           _crawling = false;
+        });
+      }
+    }
+  }
+
+  /// 依次爬取当前校区所有未完成楼栋，可中途停止。
+  Future<void> _crawlAllIncomplete() async {
+    final campus = _campus;
+    if (campus == null || _busy) return;
+    if (_statusLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在检测本地获取状态，请稍候再试')),
+      );
+      return;
+    }
+    final pending = _incompleteBuildings;
+    if (pending.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前校区没有未完成楼栋')),
+      );
+      return;
+    }
+
+    final totalFloors =
+        pending.fold<int>(0, (sum, b) => sum + b.children.length);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('批量爬取未完成楼栋'),
+        content: Text('将依次爬取 ${pending.length} 栋楼宇，共 $totalFloors 层。\n'
+            '可能需要较长时间，期间可以点击「停止批量爬取」。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('开始爬取'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _crawling = true;
+      _crawlAll = true;
+      _cancelCrawlAll = false;
+      _crawlAllIndex = 0;
+      _crawlAllTotal = pending.length;
+      _crawlAllSuccess = 0;
+      _crawlAllFailed = 0;
+      _crawlDone = 0;
+      _crawlTotal = 0;
+      _result = null;
+      _showBuildingList = false;
+    });
+    _addLog('--- 批量爬取未完成：${pending.length} 栋 / $totalFloors 层 ---');
+
+    try {
+      final session = await _ensureSession();
+      final crawler = ChromeFloorCrawler(
+        session: session,
+        outputDir: _outputController.text.trim(),
+        addLog: _addLog,
+      );
+
+      for (var i = 0; i < pending.length; i++) {
+        if (_cancelCrawlAll) break;
+        final building = pending[i];
+        if (_statuses[building.id]?.completed == true) continue;
+
+        setState(() {
+          _buildingId = building.id;
+          _showBuildingList = false;
+          _crawlAllIndex = i + 1;
+          _crawlDone = 0;
+          _crawlTotal = building.children.length;
+          _result = null;
+          _floors = _placeholderFloors(campus, building);
+          _selectedIndex = defaultFloorSelectionIndex(_floors);
+        });
+        _addLog('--- 批量 ${i + 1}/${pending.length}：${building.name} ---');
+
+        try {
+          final result = await crawler.crawlBuilding(
+            tree: _campuses,
+            campus: campus,
+            building: building,
+            shouldStop: () => _cancelCrawlAll,
+            onProgress: (done, total, floor) {
+              if (!mounted) return;
+              setState(() {
+                _crawlDone = done;
+                _crawlTotal = total;
+                if (floor != null) {
+                  final index = _floors.indexWhere((f) => f.id == floor.id);
+                  if (index >= 0) _floors[index] = floor;
+                }
+              });
+            },
+          );
+          if (!mounted) return;
+          final status =
+              BuildingStatus.fromResult(building.children.length, result);
+          setState(() {
+            _result = result;
+            _floors = result.floors;
+            _selectedIndex = defaultFloorSelectionIndex(_floors);
+            _localResults[building.id] = result;
+            _statuses[building.id] = status;
+            if (status.completed) {
+              _crawlAllSuccess++;
+            } else {
+              _crawlAllFailed++;
+            }
+          });
+          _addLog('${building.name}: ${status.label} '
+              '${status.hasNoImages ? '（平台无户型图）' : '(${status.imageCount}/${status.expectedImages})'}\n');
+        } catch (e) {
+          final text = e.toString();
+          final needLogin = text.contains('401') || text.contains('登录态');
+          _addLog('批量爬取 ${building.name} 失败: $text\n');
+          if (mounted) {
+            setState(() {
+              _crawlAllFailed++;
+              _chromeState =
+                  needLogin ? _ChromeState.waitingLogin : _ChromeState.error;
+            });
+          }
+          if (needLogin) break;
+          if (text.contains('MCP') ||
+              text.contains('Chrome') ||
+              text.contains('WebSocket')) {
+            await _resetSession();
+            _addLog('MCP 会话异常，停止批量爬取\n');
+            break;
+          }
+        }
+      }
+
+      _addLog(_cancelCrawlAll
+          ? '批量爬取已停止：成功 $_crawlAllSuccess，未完成/失败 $_crawlAllFailed\n'
+          : '批量爬取结束：成功 $_crawlAllSuccess，未完成/失败 $_crawlAllFailed\n');
+      await widget.onOutputDirSaved(_outputController.text.trim());
+    } catch (e) {
+      final text = e.toString();
+      final needLogin = text.contains('401') || text.contains('登录态');
+      if (!needLogin) await _resetSession();
+      if (mounted) {
+        setState(() {
+          _chromeState =
+              needLogin ? _ChromeState.waitingLogin : _ChromeState.error;
+        });
+      }
+      _addLog('批量爬取失败: $text\n');
+      if (!needLogin) _showError('批量爬取失败', e);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _crawling = false;
+          _crawlAll = false;
+          _cancelCrawlAll = false;
+          _statusLoading = false;
+          _localDataVersion++;
         });
       }
     }
@@ -544,12 +768,9 @@ class _FloorPageState extends State<FloorPage> {
             _buildControlCard(),
             if (_crawling) ...[
               const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: _crawlTotal > 0 ? _crawlDone / _crawlTotal : null,
-              ),
+              LinearProgressIndicator(value: _progressValue),
               const SizedBox(height: 4),
-              Text('正在爬取 $_crawlDone / $_crawlTotal 层',
-                  style: const TextStyle(fontSize: 12)),
+              Text(_progressText, style: const TextStyle(fontSize: 12)),
             ],
             const SizedBox(height: 12),
             Expanded(
@@ -646,11 +867,38 @@ class _FloorPageState extends State<FloorPage> {
                         horizontal: 20, vertical: 16),
                   ),
                 ),
+                ElevatedButton.icon(
+                  onPressed: (_busy ||
+                          _statusLoading ||
+                          _campuses.isEmpty ||
+                          _incompleteBuildings.isEmpty)
+                      ? null
+                      : _crawlAllIncomplete,
+                  icon: const Icon(Icons.playlist_add_check),
+                  label: Text(_crawlAll
+                      ? '批量爬取中...'
+                      : '爬取所有未完成 (${_incompleteBuildings.length})'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    backgroundColor: Colors.orange.shade800,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                if (_crawlAll)
+                  OutlinedButton.icon(
+                    onPressed: _cancelCrawlAll
+                        ? null
+                        : () => setState(() => _cancelCrawlAll = true),
+                    icon: const Icon(Icons.stop),
+                    label: Text(_cancelCrawlAll ? '正在停止...' : '停止批量爬取'),
+                  ),
               ],
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _outputController,
+              enabled: !_busy,
               decoration: const InputDecoration(
                 labelText: '本地输出目录',
                 helperText: '保存 floors.json、details/ 与 images/',
@@ -797,12 +1045,12 @@ class _FloorPageState extends State<FloorPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          '${building.children.length} 层 · '
-                          '图片 ${status.imageCount}/${building.children.length}',
+                          _buildingSubtitle(status, building.children.length),
                           style: const TextStyle(fontSize: 12),
                         ),
                         trailing: _statusBadge(status),
-                        onTap: () => _selectBuilding(building.id),
+                        onTap:
+                            _busy ? null : () => _selectBuilding(building.id),
                       );
                     },
                   ),
@@ -810,6 +1058,23 @@ class _FloorPageState extends State<FloorPage> {
         ],
       ),
     );
+  }
+
+  String _buildingSubtitle(BuildingStatus status, int totalFloors) {
+    if (status.completed && status.hasNoImages) {
+      return '$totalFloors 层 · 平台无户型图';
+    }
+    if (status.noImageFloors > 0) {
+      return '$totalFloors 层 · '
+          '图片 ${status.imageCount}/${status.expectedImages} · '
+          '${status.noImageFloors} 层无图';
+    }
+    if (status.crawledFloors == 0) {
+      return '$totalFloors 层 · 未获取';
+    }
+    final expected =
+        status.expectedImages == 0 ? totalFloors : status.expectedImages;
+    return '$totalFloors 层 · 图片 ${status.imageCount}/$expected';
   }
 
   Widget _statusBadge(BuildingStatus status) {
@@ -907,7 +1172,7 @@ class _FloorPageState extends State<FloorPage> {
                           !crawled
                               ? '待爬取'
                               : '房间 ${floor.roomCount} · '
-                                  '${floor.hasImage ? '图片已保存' : '无户型图'}',
+                                  '${floor.hasImage ? '图片已保存' : (floor.cadPath.isEmpty ? '平台无户型图' : '户型图未下载')}',
                           style: const TextStyle(fontSize: 12),
                         ),
                         trailing: Icon(
@@ -921,7 +1186,9 @@ class _FloorPageState extends State<FloorPage> {
                               ? Colors.green
                               : Colors.grey.shade400,
                         ),
-                        onTap: () => setState(() => _selectedIndex = index),
+                        onTap: _busy
+                            ? null
+                            : () => setState(() => _selectedIndex = index),
                       );
                     },
                   ),
@@ -1008,10 +1275,25 @@ class _FloorPageState extends State<FloorPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.broken_image_outlined,
-                            size: 56, color: Colors.grey.shade400),
+                        Icon(
+                          floor.cadPath.isEmpty
+                              ? Icons.image_not_supported_outlined
+                              : Icons.broken_image_outlined,
+                          size: 56,
+                          color: Colors.grey.shade400,
+                        ),
                         const SizedBox(height: 12),
-                        const Text('该楼层没有可用的户型图'),
+                        Text(
+                          floor.cadPath.isEmpty ? '平台未上传该楼层户型图' : '户型图未下载成功',
+                        ),
+                        if (floor.cadPath.isEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            '该楼层仍按已完成统计',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey.shade600),
+                          ),
+                        ],
                         if (floor.cadPath.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           SelectableText(

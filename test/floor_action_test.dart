@@ -124,14 +124,16 @@ void main() {
   });
 
   group('BuildingStatus', () {
-    FloorInfo info(String id, {String? image, String? detail}) => FloorInfo(
+    FloorInfo info(String id,
+            {String? image, String? detail, String? cadPath}) =>
+        FloorInfo(
           id: id,
           name: id,
           buildingId: 'building-1',
           buildingName: '主楼',
           campusId: 'campus-1',
           campusName: '南湖校区',
-          cadPath: image == null ? '' : 'cad-$id',
+          cadPath: cadPath ?? (image == null ? '' : 'cad-$id'),
           imagePath: image,
           detailPath: detail,
           roomCount: 1,
@@ -151,7 +153,7 @@ void main() {
           crawledAt: DateTime(2026, 10, 21),
         );
 
-    test('所有楼层都拿到图片才算已完成', () {
+    test('所有楼层详情和图片都获取才算已完成', () {
       final status = BuildingStatus.fromResult(
         2,
         result([
@@ -162,7 +164,42 @@ void main() {
       expect(status.completed, isTrue);
       expect(status.crawledFloors, 2);
       expect(status.imageCount, 2);
+      expect(status.expectedImages, 2);
       expect(status.label, '已完成');
+    });
+
+    test('平台没有户型图的楼层按已完成处理', () {
+      final mixed = BuildingStatus.fromResult(
+        2,
+        result([
+          info('1', image: '/tmp/1.jpg', detail: '/tmp/1.json'),
+          info('2', detail: '/tmp/2.json'),
+        ]),
+      );
+      expect(mixed.completed, isTrue);
+      expect(mixed.expectedImages, 1);
+      expect(mixed.imageCount, 1);
+      expect(mixed.noImageFloors, 1);
+      expect(mixed.label, '已完成');
+
+      final noImages = BuildingStatus.fromResult(
+        1,
+        result([info('1', detail: '/tmp/1.json')]),
+      );
+      expect(noImages.completed, isTrue);
+      expect(noImages.hasNoImages, isTrue);
+    });
+
+    test('平台有图但图片下载失败时为未完成', () {
+      final status = BuildingStatus.fromResult(
+        1,
+        result([
+          info('1', detail: '/tmp/1.json', cadPath: 'cad-1'),
+        ]),
+      );
+      expect(status.completed, isFalse);
+      expect(status.expectedImages, 1);
+      expect(status.imageCount, 0);
     });
 
     test('缺图片或没有本地数据时为未完成', () {

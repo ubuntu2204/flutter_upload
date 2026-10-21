@@ -25,10 +25,40 @@ class ChromeFloorCrawler {
   /// 接口不带 buildingId 时返回全部校区/楼栋；未登录时返回 401。
   Future<List<FloorNode>> loadTree() async {
     addLog('--- 加载校区/楼栋树 ---\n');
-    final result = await session.evaluate(_treeScript);
-    if (result is Map && result['error'] != null) {
-      throw FloorCrawlException(_loginHint(result));
+    dynamic result;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await session.evaluate(_treeScript);
+      } catch (e) {
+        if (attempt == 3) rethrow;
+        addLog('加载楼栋失败（$attempt/3）: $e，稍后重试...\n');
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+        continue;
+      }
+      if (result is Map && result['error'] != null) {
+        final error = result['error'].toString();
+        if (error.contains('401')) {
+          throw FloorCrawlException(_loginHint(result));
+        }
+        if (attempt == 3) {
+          throw FloorCrawlException(
+              '加载楼栋失败: $error ${result['message'] ?? ''}');
+        }
+        addLog('加载楼栋返回 $error（$attempt/3），稍后重试...\n');
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+        continue;
+      }
+      if (result is! List && result is! Map) {
+        if (attempt == 3) {
+          throw FloorCrawlException('加载楼栋返回格式异常: $result');
+        }
+        addLog('加载楼栋返回异常（$attempt/3）: $result，稍后重试...\n');
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+        continue;
+      }
+      break;
     }
+
     final tree = parseFloorTree(result);
     if (tree.isEmpty) {
       throw const FloorCrawlException('楼栋树为空，请确认账号有公房管理权限。');
@@ -47,6 +77,7 @@ class ChromeFloorCrawler {
     required List<FloorNode> tree,
     required FloorNode campus,
     required FloorNode building,
+    bool Function()? shouldStop,
     void Function(int completed, int total, FloorInfo? floor)? onProgress,
   }) async {
     final floors = building.children;
@@ -63,6 +94,10 @@ class ChromeFloorCrawler {
     addLog('开始爬取：${campus.name} / ${building.name}，共 ${floors.length} 层\n');
     final infos = <FloorInfo>[];
     for (var i = 0; i < floors.length; i++) {
+      if (shouldStop?.call() == true) {
+        addLog('收到停止请求，保存已完成楼层...\n');
+        break;
+      }
       final node = floors[i];
       final index = i + 1;
       addLog('--- [$index/${floors.length}] ${node.name} ---\n');
@@ -74,10 +109,8 @@ class ChromeFloorCrawler {
       String? imagePath;
 
       try {
-        final payload = await session.evaluate(_floorScript(node.id));
-        if (payload is Map && payload['error'] != null) {
-          addLog('  楼层详情失败: ${payload['error']} ${payload['message'] ?? ''}\n');
-        } else if (payload is Map) {
+        final payload = await _fetchFloorPayload(node);
+        if (payload is Map) {
           final detailValue = unwrapPayload(payload['detail']);
           if (detailValue is Map) {
             detail = Map<String, dynamic>.from(detailValue);
@@ -109,6 +142,7 @@ class ChromeFloorCrawler {
         }
       } catch (e) {
         addLog('  楼层爬取异常: $e\n');
+        if (e.toString().contains('登录')) rethrow;
       }
 
       if (detail != null) {
@@ -133,6 +167,9 @@ class ChromeFloorCrawler {
       );
       infos.add(info);
       onProgress?.call(index, floors.length, info);
+      if (i < floors.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
     }
 
     final manifest = <String, dynamic>{
@@ -181,6 +218,45 @@ class ChromeFloorCrawler {
     );
   }
 
+  /// 获取单层详情和户型图；失败时最多重试 3 次。
+  Future<dynamic> _fetchFloorPayload(FloorNode node) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final payload = await session.evaluate(_floorScript(node.id));
+        if (payload is Map && payload['error'] != null) {
+          final error = payload['error'].toString();
+          if (error.contains('401')) {
+            throw FloorCrawlException(_loginHint(payload));
+          }
+          lastError = FloorCrawlException(
+              '${payload['error']} ${payload['message'] ?? ''}');
+          if (attempt == 3) break;
+          addLog('  楼层 ${node.name} 请求失败（$attempt/3）: '
+              '$lastError，稍后重试...\n');
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        if (payload is! Map) {
+          lastError = FloorCrawlException('返回格式异常: $payload');
+          if (attempt == 3) break;
+          addLog('  楼层 ${node.name} 返回异常（$attempt/3）: $payload，稍后重试...\n');
+          await Future.delayed(Duration(milliseconds: 600 * attempt));
+          continue;
+        }
+        return payload;
+      } catch (e) {
+        final text = e.toString();
+        if (text.contains('401') || text.contains('登录')) rethrow;
+        lastError = e;
+        if (attempt == 3) break;
+        addLog('  楼层 ${node.name} 异常（$attempt/3）: $e，稍后重试...\n');
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+      }
+    }
+    throw FloorCrawlException('楼层 ${node.name} 获取失败: $lastError');
+  }
+
   String _outputDirFor(FloorNode building) {
     final base = outputDir.trim().isEmpty ? defaultFloorOutputDir() : outputDir;
     return '$base/${sanitizeFileName(building.name)}_${building.id}';
@@ -212,10 +288,24 @@ class ChromeFloorCrawler {
 /// 在页面上下文调用楼层树接口。
 const String _treeScript = r'''
 (async () => {
+  const fetchWithTimeout = async (url, options, ms) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const token = localStorage.getItem('auth._token.local') || '';
-  const res = await fetch('/api/house-base/personal/visual/building/floor/tree?attributeCode=GF', {
-    headers: { Authorization: token, Accept: 'application/json, text/plain, */*' }
-  });
+  let res;
+  try {
+    res = await fetchWithTimeout('/api/house-base/personal/visual/building/floor/tree?attributeCode=GF', {
+      headers: { Authorization: token, Accept: 'application/json, text/plain, */*' }
+    }, 30000);
+  } catch (e) {
+    return { error: 'FETCH_ERROR', message: String(e) };
+  }
   const text = await res.text();
   if (!res.ok) return { error: 'HTTP ' + res.status, message: text.slice(0, 500) };
   try {
@@ -230,10 +320,24 @@ const String _treeScript = r'''
 String _floorScript(String floorId) => '''
 (async () => {
   const floorId = '$floorId';
+  const fetchWithTimeout = async (url, options, ms) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const token = localStorage.getItem('auth._token.local') || '';
-  const detailRes = await fetch('/api/house-base/personal/visual/building/floor/' + floorId + '?type=byDep', {
-    headers: { Authorization: token, Accept: 'application/json, text/plain, */*' }
-  });
+  let detailRes;
+  try {
+    detailRes = await fetchWithTimeout('/api/house-base/personal/visual/building/floor/' + floorId + '?type=byDep', {
+      headers: { Authorization: token, Accept: 'application/json, text/plain, */*' }
+    }, 30000);
+  } catch (e) {
+    return { error: 'FETCH_ERROR', message: String(e) };
+  }
   const detailText = await detailRes.text();
   if (!detailRes.ok) {
     return { error: 'HTTP ' + detailRes.status, message: detailText.slice(0, 500) };
@@ -249,7 +353,14 @@ String _floorScript(String floorId) => '''
   if (!cad) return { detail: detail, image: null };
 
   const path = String(cad).replace(/^\\/+/, '');
-  const imgRes = await fetch('/api/base/r/' + path, { headers: { Authorization: token } });
+  let imgRes;
+  try {
+    imgRes = await fetchWithTimeout('/api/base/r/' + path, {
+      headers: { Authorization: token }
+    }, 60000);
+  } catch (e) {
+    return { detail: detail, image: { error: 'FETCH_ERROR', body: String(e) } };
+  }
   if (!imgRes.ok) {
     const body = (await imgRes.text()).slice(0, 200);
     return { detail: detail, image: { error: 'HTTP ' + imgRes.status, body: body } };
