@@ -98,8 +98,8 @@ Future<bool> _backupRemoteBinary(
     addLog('无法从启动命令解析后端目录，跳过旧版本备份\n');
     return Future.value(true);
   }
-  return sshRunCmd(cfg.ftpHost, sshUser, buildBackupScript(binDir),
-      'SSH 备份旧后端二进制', addLog);
+  return sshRunCmd(
+      cfg.ftpHost, sshUser, buildBackupScript(binDir), 'SSH 备份旧后端二进制', addLog);
 }
 
 Future<bool> _startRemoteServer(
@@ -190,6 +190,24 @@ Future<void> runBackend(TaskConfig cfg, void Function(String) addLog) async {
       );
     } else {
       addLog('未找到 config.json，跳过配置文件上传\n');
+    }
+
+    // 上传楼层矢量地图数据（backend/data/floor_maps），供 /floor-maps 接口读取。
+    // 数据量通常 2~4MB，失败时中止启动，避免新后端起来后地图接口 503。
+    final dataDir = Directory('${cfg.backendPath}/data');
+    if (await dataDir.exists()) {
+      final dataOk = await ftpUploadDirectoryParallel(
+        cfg,
+        dataDir,
+        '${cfg.ftpBackendDir}/data',
+        addLog,
+      );
+      if (!dataOk) {
+        addLog('楼层矢量地图数据上传失败，已中止部署（服务当前仍停止）。\n');
+        return;
+      }
+    } else {
+      addLog('未找到 backend/data 目录，跳过楼层矢量地图数据上传\n');
     }
 
     // 赋可执行权限

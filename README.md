@@ -7,7 +7,7 @@ Flutter 桌面工具（Linux），用于打包并部署 maintenance 等项目的
 | 按钮 | 说明 |
 | --- | --- |
 | 上传前端 | 构建 Flutter Web 并通过 FTP 上传到服务器 |
-| 上传后端并赋权 | `dart compile exe` 构建后端，FTP 上传二进制与 config.json、远程赋权并重启服务 |
+| 上传后端并赋权 | `dart compile exe` 构建后端，FTP 上传二进制、config.json 与 `backend/data`（楼层矢量地图），远程赋权并重启服务 |
 | 部署到移动设备 | 将构建产物部署到移动设备 |
 | 打包重命名部署服务器 | 按版本重命名打包产物并部署 |
 | 启动后端 / 停止后端 | 本地运行 `dart run bin/server.dart`（工作目录取自设置的「后端本地路径」backendPath），关闭本程序后端继续运行 |
