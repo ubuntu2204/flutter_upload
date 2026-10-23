@@ -43,14 +43,21 @@ class McpStdioClient {
     required void Function(String) addLog,
     List<String> args = const [],
   }) async {
-    final executable = await _resolveNpx();
+    final launcher = await _resolveNpx();
+    addLog('使用 Node ${launcher.nodeVersion}（${launcher.nodeBinDir}）\n');
     final process = await Process.start(
-      executable,
+      launcher.npxPath,
       args,
       runInShell: false,
       // 应用自身的工作目录可能已被删除（例如重新构建 bundle），
       // 子进程继续继承会触发 Node 的 uv_cwd ENOENT，必须固定到稳定目录。
       workingDirectory: _safeWorkingDirectory(),
+      // npx 的 shebang 是 `#!/usr/bin/env node`，只有把所选版本的
+      // bin 目录前置到 PATH，才能确保它用这个 Node 执行。
+      environment: {
+        ...Platform.environment,
+        'PATH': '${launcher.nodeBinDir}:${Platform.environment['PATH'] ?? ''}',
+      },
     );
     final client = McpStdioClient._(process, addLog);
     client._listen();
@@ -64,11 +71,34 @@ class McpStdioClient {
     return Directory.systemTemp.path;
   }
 
-  static Future<String> _resolveNpx() async {
-    final direct = await _which('npx');
-    if (direct != null) return direct;
+  /// 选择一个满足 chrome-devtools-mcp 版本要求的 npx。
+  ///
+  /// 桌面环境启动应用时 PATH 往往只包含系统自带的旧版 Node，而 nvm
+  /// 安装的新版本未必在 PATH 中，因此这里枚举候选并逐个校验版本。
+  static Future<_NpxLauncher> _resolveNpx() async {
+    final candidates = <String>[];
 
-    // 应用从桌面启动时可能没有加载 nvm 的 PATH，用登录 shell 再找一次。
+    final home = Platform.environment['HOME'];
+    if (home != null) {
+      final versionsDir = Directory('$home/.nvm/versions/node');
+      if (await versionsDir.exists()) {
+        final dirs = await versionsDir
+            .list()
+            .where((e) => e is Directory)
+            .cast<Directory>()
+            .toList();
+        dirs.sort((a, b) => _compareNodeDirs(b.path, a.path));
+        for (final dir in dirs) {
+          final npx = '${dir.path}/bin/npx';
+          if (File(npx).existsSync()) candidates.add(npx);
+        }
+      }
+    }
+
+    final direct = await _which('npx');
+    if (direct != null) candidates.add(direct);
+
+    // 登录 shell 通常已经加载 nvm，可作为最后一路来源。
     try {
       final shell = await Process.run(
         'bash',
@@ -77,26 +107,67 @@ class McpStdioClient {
       );
       if (shell.exitCode == 0) {
         final path = shell.stdout.toString().trim();
-        if (path.isNotEmpty) return path;
+        if (path.isNotEmpty) candidates.add(path);
       }
     } catch (_) {}
 
-    final home = Platform.environment['HOME'];
-    if (home != null) {
-      final versionsDir = Directory('$home/.nvm/versions/node');
-      if (await versionsDir.exists()) {
-        final candidates = await versionsDir
-            .list()
-            .where((e) => e is Directory)
-            .cast<Directory>()
-            .map((d) => '${d.path}/bin/npx')
-            .where((p) => File(p).existsSync())
-            .toList();
-        candidates.sort();
-        if (candidates.isNotEmpty) return candidates.last;
+    final checked = <String, String>{};
+    for (final npx in candidates.toSet()) {
+      final nodeBinDir = File(npx).parent.path;
+      final node = '$nodeBinDir/node';
+      if (!File(node).existsSync()) continue;
+      final version = await _nodeVersion(node);
+      if (version == null) continue;
+      checked[nodeBinDir] = version;
+      if (_supportsChromeMcp(version)) {
+        return _NpxLauncher(npx, nodeBinDir, version);
       }
     }
-    throw McpException('未找到 npx。请先安装 Node.js（建议 22+），并确保 npx 在 PATH 中。');
+
+    final found = checked.isEmpty
+        ? '未找到可用的 Node.js'
+        : checked.entries.map((e) => '${e.key}: ${e.value}').join('；');
+    throw McpException('chrome-devtools-mcp 需要 Node 20.19.0 或更高版本，'
+        '但只找到：$found。请安装新版 Node 20/22 LTS，或将新版 Node 的 npx 加入 PATH。');
+  }
+
+  static Future<String?> _nodeVersion(String node) async {
+    try {
+      final result = await Process.run(
+        node,
+        ['-v'],
+        workingDirectory: _safeWorkingDirectory(),
+      );
+      if (result.exitCode != 0) return null;
+      final version = result.stdout.toString().trim();
+      return version.isEmpty ? null : version;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _supportsChromeMcp(String version) {
+    final parsed = _parseVersion(version);
+    if (parsed == null) return false;
+    return parsed[0] > 20 || (parsed[0] == 20 && parsed[1] >= 19);
+  }
+
+  static List<int>? _parseVersion(String text) {
+    final match = RegExp(r'v?(\d+)\.(\d+)\.(\d+)').firstMatch(text);
+    if (match == null) return null;
+    return [for (var i = 1; i <= 3; i++) int.parse(match.group(i)!)];
+  }
+
+  /// 按语义版本比较 nvm 目录（形如 `.../node/v24.16.0`）。
+  static int _compareNodeDirs(String a, String b) {
+    final va = _parseVersion(a.split(Platform.pathSeparator).last);
+    final vb = _parseVersion(b.split(Platform.pathSeparator).last);
+    if (va == null || vb == null) return a.compareTo(b);
+    for (var i = 0; i < 3; i++) {
+      final diff = va[i] - vb[i];
+      if (diff != 0) return diff;
+    }
+    return 0;
   }
 
   static Future<String?> _which(String name) async {
@@ -419,6 +490,15 @@ Future<McpChromeSession> startChromeMcp({
         '请检查 chrome-devtools-mcp 版本。当前工具: ${tools.join(', ')}');
   }
   return McpChromeSession(client);
+}
+
+/// 选定的 npx 及其对应的 Node bin 目录。
+class _NpxLauncher {
+  final String npxPath;
+  final String nodeBinDir;
+  final String nodeVersion;
+
+  const _NpxLauncher(this.npxPath, this.nodeBinDir, this.nodeVersion);
 }
 
 class McpException implements Exception {

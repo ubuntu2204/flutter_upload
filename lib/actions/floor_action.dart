@@ -89,11 +89,25 @@ class FloorNode {
       id: (data['id'] ?? json['id'] ?? json['key'] ?? '').toString(),
       name: (data['name'] ?? json['name'] ?? json['title'] ?? '').toString(),
       parentId: (json['parentId'] ?? data['parentId'] ?? '').toString(),
-      campusId: (data['baseCampusId'] ?? json['baseCampusId'] ?? '').toString(),
+      campusId: (data['baseCampusId'] ??
+              json['baseCampusId'] ??
+              data['campusId'] ??
+              json['campusId'] ??
+              '')
+          .toString(),
       children: parseFloorTree(json['children'] ?? data['children']).toList(),
       raw: data,
     );
   }
+
+  /// 序列化为本地缓存（保留层级与标识，不带 raw 以免重复存储子树）。
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'parentId': parentId,
+        'baseCampusId': campusId,
+        'children': children.map((child) => child.toJson()).toList(),
+      };
 
   bool get hasChildren => children.isNotEmpty;
 

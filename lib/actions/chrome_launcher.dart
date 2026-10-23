@@ -4,7 +4,7 @@ import 'dart:io';
 const int chromeDebugPort = 9222;
 
 /// 房产平台登录页 / 可视化页面。
-const String platformLoginUrl = 'http://210.30.202.99/house/auth/login';
+const String platformLoginUrl = 'http://210.30.202.99/mam/auth/login/';
 const String platformCampusUrl =
     'http://210.30.202.99/house/house-base-decision/personal/visual/campus';
 

@@ -8,9 +8,10 @@ import 'package:flutter/services.dart';
 import 'actions/chrome_launcher.dart';
 import 'actions/floor_action.dart';
 import 'actions/floor_mcp_action.dart';
+import 'actions/floor_tree_cache.dart';
 import 'actions/mcp_client.dart';
 
-enum _ChromeState { idle, starting, waitingLogin, ready, error }
+enum _ChromeState { idle, starting, waitingLogin, ready, cached, error }
 
 /// 楼层管理页：通过本地 Chrome MCP 使用手动登录的浏览器会话，
 /// 加载校区/楼栋列表，爬取楼层详情与户型图。
@@ -70,6 +71,8 @@ class _FloorPageState extends State<FloorPage> {
           : widget.initialOutputDir,
     );
     _buildingSearchController = TextEditingController();
+    // 本地树缓存独立于 Chrome 登录态，启动即展示。
+    unawaited(_loadCachedTree());
   }
 
   @override
@@ -213,6 +216,41 @@ class _FloorPageState extends State<FloorPage> {
     if (session != null) await session.close();
   }
 
+  /// 启动时读取本地楼栋缓存，无需 Chrome 登录即可浏览校区/楼宇。
+  Future<void> _loadCachedTree() async {
+    if (_campuses.isNotEmpty) return;
+    final cached = await FloorTreeCache.load(_outputController.text);
+    if (!mounted || cached == null || _campuses.isNotEmpty) return;
+    _applyTree(cached.tree);
+    setState(() => _chromeState = _ChromeState.cached);
+    _addLog('已从本地缓存加载校区/楼栋：${cached.path}\n');
+    unawaited(_refreshLocalData());
+  }
+
+  /// 应用一份校区/楼栋树，并默认选中第一个校区的「主楼」。
+  void _applyTree(List<FloorNode> tree) {
+    if (tree.isEmpty) return;
+    final campus = tree.first;
+    final building =
+        _firstWhereOrNull(campus.children, (b) => b.name.contains('主楼')) ??
+            (campus.children.isNotEmpty ? campus.children.first : null);
+    setState(() {
+      _campuses = tree;
+      _campusId = campus.id;
+      _campusKeyVersion++;
+      _buildingId = building?.id;
+      _floors =
+          building == null ? const [] : _placeholderFloors(campus, building);
+      _selectedIndex = defaultFloorSelectionIndex(_floors);
+      _result = null;
+      _showBuildingList = true;
+      _buildingFilter = '';
+      _buildingSearchController.clear();
+      _statuses = {};
+      _localResults = {};
+    });
+  }
+
   Future<void> _loadTree() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -227,29 +265,17 @@ class _FloorPageState extends State<FloorPage> {
       final tree = await crawler.loadTree();
       if (!mounted) return;
 
-      final campus = tree.first;
-      final building =
-          _firstWhereOrNull(campus.children, (b) => b.name.contains('主楼')) ??
-              (campus.children.isNotEmpty ? campus.children.first : null);
-
-      setState(() {
-        _campuses = tree;
-        _campusId = campus.id;
-        _campusKeyVersion++;
-        _buildingId = building?.id;
-        _floors =
-            building == null ? const [] : _placeholderFloors(campus, building);
-        _selectedIndex = defaultFloorSelectionIndex(_floors);
-        _result = null;
-        _showBuildingList = true;
-        _buildingFilter = '';
-        _buildingSearchController.clear();
-        _statuses = {};
-        _localResults = {};
-        _chromeState = _ChromeState.ready;
-      });
-      _addLog('已加载：${campus.name} / ${building?.name ?? '暂无楼栋'}'
+      _applyTree(tree);
+      setState(() => _chromeState = _ChromeState.ready);
+      _addLog('已加载：${_campus?.name ?? ''} / ${_building?.name ?? '暂无楼栋'}'
           '，共 ${_buildings.length} 栋\n');
+      try {
+        final cachePath =
+            await FloorTreeCache.save(_outputController.text, tree);
+        _addLog('已保存本地楼栋缓存: $cachePath\n');
+      } catch (e) {
+        _addLog('保存本地楼栋缓存失败: $e\n');
+      }
       unawaited(_refreshLocalData());
     } catch (e) {
       if (!mounted) return;
@@ -257,6 +283,21 @@ class _FloorPageState extends State<FloorPage> {
       final needLogin = text.contains('401') || text.contains('登录态');
       if (!needLogin) await _resetSession();
       if (!mounted) return;
+
+      // 远程加载失败时回退本地缓存，保证未登录/离线也能浏览列表。
+      final cached = _campuses.isEmpty
+          ? await FloorTreeCache.load(_outputController.text)
+          : null;
+      if (!mounted) return;
+      if (cached != null) {
+        _applyTree(cached.tree);
+        setState(() => _chromeState = _ChromeState.cached);
+        _addLog('加载失败: $text\n');
+        _addLog('已改用本地缓存：${cached.path}。登录后可重新加载以更新。\n');
+        unawaited(_refreshLocalData());
+        return;
+      }
+
       setState(() {
         _chromeState =
             needLogin ? _ChromeState.waitingLogin : _ChromeState.error;
@@ -809,8 +850,8 @@ class _FloorPageState extends State<FloorPage> {
                 const SizedBox(width: 12),
                 const Expanded(
                   child: Text(
-                    '通过本地 Chrome MCP 复用浏览器登录态；'
-                    '首次使用会通过 npx 启动 chrome-devtools-mcp。',
+                    '校区/楼宇列表会缓存到本地，未登录也能浏览；'
+                    '登录后点击「加载楼栋」可刷新并爬取。',
                     style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ),
@@ -901,7 +942,7 @@ class _FloorPageState extends State<FloorPage> {
               enabled: !_busy,
               decoration: const InputDecoration(
                 labelText: '本地输出目录',
-                helperText: '保存 floors.json、details/ 与 images/',
+                helperText: '保存 tree.json、floors.json、details/ 与 images/',
                 prefixIcon: Icon(Icons.folder),
                 border: OutlineInputBorder(),
                 isDense: true,
@@ -932,6 +973,10 @@ class _FloorPageState extends State<FloorPage> {
       case _ChromeState.ready:
         color = Colors.green;
         text = '已登录 / 可爬取';
+        break;
+      case _ChromeState.cached:
+        color = Colors.blueGrey;
+        text = '本地缓存';
         break;
       case _ChromeState.error:
         color = Colors.red;
@@ -1011,7 +1056,8 @@ class _FloorPageState extends State<FloorPage> {
                       padding: const EdgeInsets.all(24),
                       child: Text(
                         _buildings.isEmpty
-                            ? '启动 Chrome 登录后，点击「加载楼栋」'
+                            ? '本地暂无楼栋缓存。登录后点击「加载楼栋」，'
+                                '成功加载过一次即可离线浏览'
                             : '没有匹配的楼宇',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey.shade600),
@@ -1137,7 +1183,7 @@ class _FloorPageState extends State<FloorPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        _busy ? '正在加载...' : '启动 Chrome 登录后，点击「加载楼栋」',
+                        _busy ? '正在加载...' : '本地暂无楼栋缓存，登录后点击「加载楼栋」',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
