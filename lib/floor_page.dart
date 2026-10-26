@@ -4,10 +4,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'actions/chrome_launcher.dart';
 import 'actions/floor_action.dart';
 import 'actions/floor_mcp_action.dart';
+import 'actions/floor_vector_action.dart';
 import 'actions/floor_tree_cache.dart';
 import 'actions/mcp_client.dart';
 
@@ -60,6 +62,13 @@ class _FloorPageState extends State<FloorPage> {
   int _crawlAllTotal = 0;
   int _crawlAllSuccess = 0;
   int _crawlAllFailed = 0;
+  bool _showVector = false;
+  bool _vectorizing = false;
+  int _vectorDone = 0;
+  int _vectorTotal = 0;
+  int _vectorConverted = 0;
+  int _vectorSkipped = 0;
+  int _vectorFailed = 0;
   String _log = '等待操作...';
 
   @override
@@ -744,6 +753,77 @@ class _FloorPageState extends State<FloorPage> {
     }
   }
 
+  Future<void> _toggleVector() async {
+    if (_busy) return;
+    if (_showVector) {
+      setState(() => _showVector = false);
+      return;
+    }
+
+    final outputDir = _outputController.text.trim().isEmpty
+        ? defaultFloorOutputDir()
+        : _outputController.text.trim();
+    setState(() {
+      _busy = true;
+      _vectorizing = true;
+      _vectorDone = 0;
+      _vectorTotal = 0;
+      _vectorConverted = 0;
+      _vectorSkipped = 0;
+      _vectorFailed = 0;
+    });
+    _addLog('--- 将全部户型图转换为 SVG 矢量线稿 ---\n');
+    try {
+      final result = await convertFloorMapsToSvg(
+        outputDir,
+        addLog: _addLog,
+        onProgress: (progress) {
+          if (!mounted) return;
+          setState(() {
+            _vectorDone = progress.done;
+            _vectorTotal = progress.total;
+            _vectorConverted = progress.converted;
+            _vectorSkipped = progress.skipped;
+            _vectorFailed = progress.failed;
+          });
+        },
+      );
+      if (!mounted) return;
+      if (result.total == 0) {
+        _addLog('未找到可转换的户型图，请先爬取楼栋。\n');
+        _showError('切换矢量', '未找到已下载的户型图');
+        return;
+      }
+      setState(() => _showVector = true);
+      final sizeMb = (result.svgBytes / 1024 / 1024).toStringAsFixed(1);
+      _addLog(
+        '矢量转换完成：共 ${result.total} 张，新增 ${result.converted}，'
+        '已是最新 ${result.skipped}，失败 ${result.failed}，'
+        'SVG 共 $sizeMb MB。\n',
+      );
+      if (result.failed > 0) {
+        _showError('部分地图未转换', '${result.failed} 张失败，详情见运行日志');
+      }
+    } catch (e) {
+      _addLog('矢量转换失败: $e\n');
+      _showError('矢量转换失败', e);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _vectorizing = false;
+        });
+      }
+    }
+  }
+
+  String get _vectorProgressText {
+    if (_vectorTotal == 0) return '正在扫描本地户型图...';
+    return '正在转换矢量 $_vectorDone/$_vectorTotal · '
+        '新增 $_vectorConverted · 跳过 $_vectorSkipped'
+        '${_vectorFailed == 0 ? '' : ' · 失败 $_vectorFailed'}';
+  }
+
   void _showError(String title, Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -789,6 +869,16 @@ class _FloorPageState extends State<FloorPage> {
       appBar: AppBar(
         title: const Text('楼层管理'),
         actions: [
+          TextButton.icon(
+            onPressed: _busy ? null : _toggleVector,
+            icon: Icon(_showVector ? Icons.image_outlined : Icons.polyline),
+            label: Text(_showVector ? '查看原图' : '切换矢量'),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            ),
+          ),
+          const SizedBox(width: 8),
           IconButton(
             onPressed: () => _openDirectory(
                 _result?.outputDir ?? _outputController.text.trim()),
@@ -812,6 +902,14 @@ class _FloorPageState extends State<FloorPage> {
               LinearProgressIndicator(value: _progressValue),
               const SizedBox(height: 4),
               Text(_progressText, style: const TextStyle(fontSize: 12)),
+            ],
+            if (_vectorizing) ...[
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: _vectorTotal == 0 ? null : _vectorDone / _vectorTotal,
+              ),
+              const SizedBox(height: 4),
+              Text(_vectorProgressText, style: const TextStyle(fontSize: 12)),
             ],
             const SizedBox(height: 12),
             Expanded(
@@ -1271,6 +1369,10 @@ class _FloorPageState extends State<FloorPage> {
     final index = _selectedIndex.clamp(0, floors.length - 1);
     final floor = floors[index];
     final image = floor.imagePath;
+    final vector = image == null ? null : floorVectorPathForImage(image);
+    final vectorExists = vector != null && File(vector).existsSync();
+    final useVector = _showVector && vectorExists;
+    final activeFile = useVector ? vector : image;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -1300,11 +1402,11 @@ class _FloorPageState extends State<FloorPage> {
                     ],
                   ),
                 ),
-                if (image != null)
+                if (activeFile != null)
                   IconButton(
-                    onPressed: () => _openFile(image),
+                    onPressed: () => _openFile(activeFile),
                     icon: const Icon(Icons.open_in_new),
-                    tooltip: '打开图片',
+                    tooltip: useVector ? '打开 SVG 矢量图' : '打开原始图片',
                   ),
                 IconButton(
                   onPressed: () => _openDirectory(result.outputDir),
@@ -1351,30 +1453,72 @@ class _FloorPageState extends State<FloorPage> {
                       ],
                     ),
                   )
-                : Container(
-                    color: Colors.grey.shade100,
-                    child: InteractiveViewer(
-                      minScale: 0.2,
-                      maxScale: 6,
-                      child: Center(
-                        child: Image.file(
-                          File(image),
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Text('图片加载失败'),
+                : _showVector && !vectorExists
+                    ? _buildVectorUnavailable()
+                    : Container(
+                        color: useVector ? Colors.white : Colors.grey.shade100,
+                        child: InteractiveViewer(
+                          minScale: 0.2,
+                          maxScale: useVector ? 12 : 6,
+                          child: Center(
+                            child: useVector
+                                ? SvgPicture.file(
+                                    File(vector),
+                                    key: ValueKey('vector-$vector'),
+                                    fit: BoxFit.contain,
+                                    semanticsLabel:
+                                        '${floor.buildingName}${floor.name}矢量户型图',
+                                    placeholderBuilder: (_) => const Center(
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                    errorBuilder: (_, __, ___) => const Center(
+                                      child: Text('SVG 矢量图加载失败'),
+                                    ),
+                                  )
+                                : Image.file(
+                                    File(image),
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) =>
+                                        const Text('图片加载失败'),
+                                  ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
             child: SelectableText(
-              image == null
+              activeFile == null
                   ? '详情: ${floor.detailPath ?? '未获取到楼层详情'}'
-                  : '本地文件: $image',
+                  : '${useVector ? '矢量文件' : '本地文件'}: $activeFile',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
               maxLines: 2,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVectorUnavailable() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.polyline, size: 56, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          const Text('该楼层的 SVG 尚未生成或转换失败'),
+          const SizedBox(height: 6),
+          Text(
+            '原始户型图仍保留，可查看运行日志定位失败原因',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _showVector = false),
+            icon: const Icon(Icons.image_outlined),
+            label: const Text('查看原图'),
           ),
         ],
       ),

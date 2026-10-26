@@ -37,6 +37,10 @@ migrate_working_dir/
 # Local FTP config (contains credentials)
 ftp_config.yaml
 
+# Local Python dependencies for floor-plan vectorization
+/.vector-deps/
+/.vector-env/
+
 # Symbolication related
 app.*.symbols
 
