@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""把楼层管理下载的全部 PNG/JPG 户型图增量描摹成纯路径 SVG。
+"""把楼层管理下载的 PNG/JPG 户型图增量转换为分层 SVG。
 
-输出到每栋楼的 vectors/，文件名与 images/ 中原图一致，仅扩展名改为 .svg。
-采用黑白线稿模式并关闭小区域过滤，避免门弧、楼梯踏步和房间编号被抹掉。
-原始图片不会被修改。
+输出到每栋楼的 vectors/。结构线使用 vtracer 描摹；房号和底标题使用
+OCR + CAD 房间数据生成可编辑 <text>；高置信门符号重画为标准圆弧。
+未通过门检测的区域保留原线稿，原始图片不会被修改。
 
 依赖（在 flutter_upload 项目根目录执行一次）：
-  python3 -m pip install --target .vector-deps 'vtracer>=0.6,<0.7'
+  python3 -m pip install --target .vector-deps --upgrade \
+    'vtracer>=0.6,<0.7' 'opencv-python-headless>=4.8,<5'
+另需系统 tesseract-ocr（chi_sim、eng）和 Pillow。
 
 用法：
   python3 tool/vectorize_floor_maps.py --root ~/floor_data
@@ -32,7 +34,7 @@ LOCAL_DEPS = PROJECT_ROOT / ".vector-deps"
 if LOCAL_DEPS.is_dir():
     sys.path.insert(0, str(LOCAL_DEPS))
 
-GENERATOR_MARK = "flutter-upload-floor-vector:v1"
+GENERATOR_MARK = "flutter-upload-floor-vector:v2-text-and-doors"
 SUPPORTED_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif"}
 
 
@@ -42,6 +44,7 @@ class VectorJob:
     floor: str
     source: Path
     target: Path
+    detail: Path | None = None
 
 
 def emit(payload: dict) -> None:
@@ -73,12 +76,17 @@ def load_jobs(root: Path) -> list[VectorJob]:
             if source.suffix.lower() not in SUPPORTED_SUFFIXES:
                 continue
             target = building_dir / "vectors" / f"{source.stem}.svg"
+            raw_detail = str(floor.get("detail") or "").strip()
+            detail = Path(raw_detail).expanduser() if raw_detail else None
+            if detail is not None and not detail.is_absolute():
+                detail = building_dir / detail
             jobs.append(
                 VectorJob(
                     building=building,
                     floor=str(floor.get("name") or floor.get("id") or source.stem),
                     source=source,
                     target=target,
+                    detail=detail,
                 )
             )
     return jobs
@@ -90,15 +98,26 @@ def needs_conversion(job: VectorJob, force: bool) -> bool:
     try:
         if job.target.stat().st_mtime_ns < job.source.stat().st_mtime_ns:
             return True
+        if (
+            job.detail is not None
+            and job.detail.is_file()
+            and job.target.stat().st_mtime_ns < job.detail.stat().st_mtime_ns
+        ):
+            return True
         with job.target.open("r", encoding="utf-8") as handle:
             return GENERATOR_MARK not in handle.read(512)
     except OSError:
         return True
 
 
-def finalize_svg(temp_path: Path) -> int:
-    """校验纯矢量内容，补 viewBox，并返回路径数。"""
+def finalize_svg(temp_path: Path, extra_svg: str = "") -> int:
+    """注入语义图层，校验纯矢量内容并补 viewBox。"""
     text = temp_path.read_text(encoding="utf-8")
+    if extra_svg:
+        closing = text.rfind("</svg>")
+        if closing < 0:
+            raise ValueError("SVG 缺少结束节点")
+        text = text[:closing] + extra_svg + text[closing:]
     root = ET.fromstring(text)
     if root.tag.rsplit("}", 1)[-1] != "svg":
         raise ValueError("输出根节点不是 SVG")
@@ -137,16 +156,47 @@ def finalize_svg(temp_path: Path) -> int:
     return path_count
 
 
-def convert_one(job: VectorJob, vtracer_module) -> int:
+def convert_one(job: VectorJob, vtracer_module) -> dict:
     if not job.source.is_file():
         raise FileNotFoundError(f"原图不存在：{job.source}")
     job.target.parent.mkdir(parents=True, exist_ok=True)
     temp_path = job.target.with_name(
         f".{job.target.stem}.{os.getpid()}.tmp.svg"
     )
+    masked_path = job.target.with_name(
+        f".{job.target.stem}.{os.getpid()}.tmp.png"
+    )
+    trace_source = job.source
+    extra_svg = ""
+    stats = {"paths": 0, "labels": 0, "titles": 0, "doors": 0}
     try:
+        try:
+            from PIL import Image
+            from floor_vector_details import build_detail_layer
+
+            layer = build_detail_layer(job.source, job.detail, job.building, job.floor)
+            for warning in layer.warnings:
+                print(f"  [warn] {job.building} / {job.floor}: {warning}", file=sys.stderr)
+            Image.fromarray(layer.image).save(masked_path)
+            trace_source = masked_path
+            extra_svg = layer.svg_groups()
+            stats.update(
+                labels=len(layer.labels),
+                titles=layer.title_count,
+                doors=len(layer.doors),
+            )
+        except Exception as exc:
+            print(
+                f"  [warn] {job.building} / {job.floor} 细节识别失败，"
+                f"保留完整原线稿：{exc}",
+                file=sys.stderr,
+            )
+            trace_source = job.source
+            extra_svg = ""
+            stats.update(labels=0, titles=0, doors=0)
+
         vtracer_module.convert_image_to_svg_py(
-            str(job.source),
+            str(trace_source),
             str(temp_path),
             colormode="binary",
             hierarchical="cutout",
@@ -158,14 +208,15 @@ def convert_one(job: VectorJob, vtracer_module) -> int:
             splice_threshold=45,
             path_precision=3,
         )
-        path_count = finalize_svg(temp_path)
+        stats["paths"] = finalize_svg(temp_path, extra_svg)
         os.replace(temp_path, job.target)
-        return path_count
+        return stats
     finally:
-        try:
-            temp_path.unlink()
-        except FileNotFoundError:
-            pass
+        for path in (temp_path, masked_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def main() -> int:
@@ -192,6 +243,7 @@ def main() -> int:
     jobs = load_jobs(root)
     total = len(jobs)
     converted = skipped = failed = 0
+    label_count = title_count = door_count = 0
     svg_bytes = 0
     started = time.monotonic()
 
@@ -200,7 +252,10 @@ def main() -> int:
         error = ""
         try:
             if needs_conversion(job, args.force):
-                convert_one(job, vtracer)
+                stats = convert_one(job, vtracer)
+                label_count += stats["labels"]
+                title_count += stats["titles"]
+                door_count += stats["doors"]
                 converted += 1
             else:
                 skipped += 1
@@ -228,6 +283,9 @@ def main() -> int:
         "skipped": skipped,
         "failed": failed,
         "svgBytes": svg_bytes,
+        "textLabels": label_count - title_count,
+        "titles": title_count,
+        "doorSymbols": door_count,
         "elapsedSeconds": round(time.monotonic() - started, 3),
         "outputRoot": str(root),
     }
