@@ -208,7 +208,31 @@ def convert_one(job: VectorJob, vtracer_module) -> dict:
             splice_threshold=45,
             path_precision=3,
         )
-        stats["paths"] = finalize_svg(temp_path, extra_svg)
+        try:
+            stats["paths"] = finalize_svg(temp_path, extra_svg)
+        except ValueError as exc:
+            if trace_source == job.source or "未生成矢量路径" not in str(exc):
+                raise
+            print(
+                f"  [warn] {job.building} / {job.floor} 增强线稿为空，"
+                "已回退完整原始线稿",
+                file=sys.stderr,
+            )
+            stats.update(labels=0, titles=0, doors=0)
+            vtracer_module.convert_image_to_svg_py(
+                str(job.source),
+                str(temp_path),
+                colormode="binary",
+                hierarchical="cutout",
+                mode="polygon",
+                filter_speckle=0,
+                corner_threshold=60,
+                length_threshold=1.0,
+                max_iterations=10,
+                splice_threshold=45,
+                path_precision=3,
+            )
+            stats["paths"] = finalize_svg(temp_path)
         os.replace(temp_path, job.target)
         return stats
     finally:

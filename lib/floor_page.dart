@@ -796,10 +796,14 @@ class _FloorPageState extends State<FloorPage> {
       }
       setState(() => _showVector = true);
       final sizeMb = (result.svgBytes / 1024 / 1024).toStringAsFixed(1);
+      final details = result.converted == 0
+          ? ''
+          : '，房号 ${result.textLabels}、标题 ${result.titles}、'
+              '圆弧门 ${result.doorSymbols}';
       _addLog(
         '矢量转换完成：共 ${result.total} 张，新增 ${result.converted}，'
         '已是最新 ${result.skipped}，失败 ${result.failed}，'
-        'SVG 共 $sizeMb MB。\n',
+        'SVG 共 $sizeMb MB$details。\n',
       );
       if (result.failed > 0) {
         _showError('部分地图未转换', '${result.failed} 张失败，详情见运行日志');

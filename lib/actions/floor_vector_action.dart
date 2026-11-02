@@ -51,6 +51,9 @@ class FloorVectorResult {
   final int skipped;
   final int failed;
   final int svgBytes;
+  final int textLabels;
+  final int titles;
+  final int doorSymbols;
 
   const FloorVectorResult({
     required this.total,
@@ -58,6 +61,9 @@ class FloorVectorResult {
     required this.skipped,
     required this.failed,
     required this.svgBytes,
+    required this.textLabels,
+    required this.titles,
+    required this.doorSymbols,
   });
 
   factory FloorVectorResult.fromMap(Map<String, dynamic> map) {
@@ -67,6 +73,9 @@ class FloorVectorResult {
       skipped: _asInt(map['skipped']),
       failed: _asInt(map['failed']),
       svgBytes: _asInt(map['svgBytes']),
+      textLabels: _asInt(map['textLabels']),
+      titles: _asInt(map['titles']),
+      doorSymbols: _asInt(map['doorSymbols']),
     );
   }
 }
