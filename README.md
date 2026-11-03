@@ -48,20 +48,17 @@ cp ftp_config.example.yaml ftp_config.yaml
 5. 点击「爬取当前楼栋」，输出目录下保存 `floors.json`、`details/` 与 `images/`；
 6. 点击「爬取所有未完成」可依次爬取当前校区所有未完成楼栋，
    期间显示楼栋/楼层进度，可点击「停止批量爬取」在当前楼层结束后停止；
-7. 点击「切换矢量」会把输出目录中的全部已下载户型图增量转换为分层 SVG，
-   保存到各楼栋的 `vectors/`。结构线、楼梯等保留为纯路径；房号与底部标题通过
-   OCR + CAD 房间数据生成可编辑 `<text>`；高置信门符号重画为标准圆弧，低置信
-   区域保留原线稿。原图不修改。再次点击「查看原图」可切回，SVG 支持高倍缩放。
+7. 楼层预览以「户型图原图」作为底图图层，叠加各层 `details/{floorId}.json` 中
+   `statisticsRoomVo.cadIdentifyData` 提供的房间矢量多边形与房间号图层：房间填充半透明、
+   底图线稿透出，滚轮缩放、拖动平移，点击房间弹出信息卡（房间号/面积/名称/类型/部门）。
+   房间多边形按 `cadIdentifyData.size` 建立 CAD 盒子、底图 `BoxFit.fill` 铺底，二者像素级对齐，
+   字段口径与 maintenance 后端一致（`no=roomNo`、`area=useArea`、`type=roomTypeName`、`dept=baseDepName`）。
 
 爬取依赖：本机 Chrome 与 Node.js（`npx` 可用）。首次加载会下载
 `chrome-devtools-mcp@1.11.0`。登录态保存在专用 Chrome 配置目录中，
 过期后重新在 Chrome 里登录即可，无需在应用中填写 Token。
 
-矢量化依赖：Python 3、Pillow、系统 `tesseract-ocr`（`chi_sim`、`eng`），以及项目本地
-`.vector-deps/` 中的 `vtracer` 与 OpenCV。新环境在项目根目录执行一次：
-`python3 -m pip install --target .vector-deps --upgrade 'vtracer>=0.6,<0.7' 'opencv-python-headless>=4.8,<5'`。
-转换以原图和详情 JSON 的修改时间增量更新；也可手动运行
-`python3 tool/vectorize_floor_maps.py --root ~/floor_data`（追加 `--force` 全量重建）。
+预览不再需要 Python 矢量化管线：房间矢量图层直接由 `cadIdentifyData` 在 Dart 侧解析并绘制。
 
 ## 远程后端服务管理（systemd）
 

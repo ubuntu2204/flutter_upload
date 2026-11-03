@@ -28,7 +28,9 @@ void main() {
     expect(find.text('启动登录 Chrome'), findsOneWidget);
     expect(find.text('加载楼栋'), findsOneWidget);
     expect(find.text('爬取当前楼栋'), findsOneWidget);
-    expect(find.text('切换矢量'), findsOneWidget);
+    // 重构后移除 vtracer「切换矢量」按钮，预览改为「底图 + 房间矢量叠加」。
+    expect(find.text('切换矢量'), findsNothing);
+    expect(find.byTooltip('打开输出目录'), findsOneWidget);
     expect(find.text('本地输出目录'), findsOneWidget);
     expect(
       find.text('本地暂无楼栋缓存。登录后点击「加载楼栋」，成功加载过一次即可离线浏览'),
