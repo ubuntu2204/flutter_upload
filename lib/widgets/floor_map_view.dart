@@ -13,12 +13,19 @@ const Color _subtle = Color(0xFF64748B);
 const Color _selectedAccent = Color(0xFFB45309);
 const Color _line = Color(0xFFD8E4F0);
 
-/// 楼层预览合成控件：底图（户型图原图）+ 房间矢量叠加层 + 点选信息卡。
+// 画布 / 图纸配色：冷调渐变打底，避免出现整块纯白。
+const Color _canvasTop = Color(0xFFF4F9FD);
+const Color _canvasBottom = Color(0xFFE2EDF6);
+const Color _blueprintTop = Color(0xFFEFF6FC);
+const Color _blueprintBottom = Color(0xFFDFEAF5);
+
+/// 楼层预览合成控件：底图（户型图原图）+ 房间矢量叠加层 + 点选文字说明。
 ///
 /// - 底图图层：[FloorInfo.imagePath] 指向的 PNG/JPEG，用 `BoxFit.fill` 铺满 CAD 盒子；
 /// - 矢量叠加层：[FloorInfo.detailPath] 里 `cadIdentifyData` 解析出的房间多边形与房间号，
 ///   按 CAD 原生坐标绘制，与底图像素级对齐；
-/// - 交互：滚轮/手势缩放平移，悬停高亮，点击房间弹出信息卡（房间号/面积/名称/类型/部门）。
+/// - 交互：滚轮/手势缩放平移，悬停/点击只描边高亮房间，房间号与详情均为纯文字，
+///   不叠加任何底色块或卡片，保证户型图完整透出。
 class FloorMapView extends StatefulWidget {
   const FloorMapView({super.key, required this.floor});
 
@@ -140,24 +147,33 @@ class _FloorMapViewState extends State<FloorMapView> {
       map = _buildPlaceholder();
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        map,
-        if (hasOverlay) _buildZoomControls(),
-        if (hasOverlay) _buildRoomCard(cad),
-        if (hasOverlay) _buildHints(),
-        if (_loading)
-          const Positioned(
-            top: 12,
-            right: 12,
-            child: SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_canvasTop, _canvasBottom],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          map,
+          if (hasOverlay) _buildZoomControls(),
+          if (hasOverlay) _buildRoomCaption(cad),
+          if (hasOverlay) _buildHints(),
+          if (_loading)
+            const Positioned(
+              top: 12,
+              right: 12,
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -183,39 +199,47 @@ class _FloorMapViewState extends State<FloorMapView> {
             child: SizedBox(
               width: width,
               height: height,
-              child: MouseRegion(
-                onHover: (event) => _handleHover(event.localPosition, childSize),
-                onExit: (_) {
-                  if (_hoveredRoom != null) setState(() => _hoveredRoom = null);
-                },
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (details) =>
-                      _handleTap(details.localPosition, childSize),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imagePath != null)
-                        Positioned.fill(
-                          child: Image.file(
-                            File(imagePath),
-                            fit: BoxFit.fill,
-                            gaplessPlayback: true,
-                            errorBuilder: (_, __, ___) =>
-                                const ColoredBox(color: Colors.white),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _line),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _ink.withValues(alpha: 0.16),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(9),
+                  child: MouseRegion(
+                    onHover: (event) =>
+                        _handleHover(event.localPosition, childSize),
+                    onExit: (_) {
+                      if (_hoveredRoom != null) {
+                        setState(() => _hoveredRoom = null);
+                      }
+                    },
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (details) =>
+                          _handleTap(details.localPosition, childSize),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Positioned.fill(child: _buildImageLayer(imagePath)),
+                          CustomPaint(
+                            painter: _FloorOverlayPainter(
+                              cad: cad,
+                              selectedRoom: _selectedRoom,
+                              hoveredRoom: _hoveredRoom,
+                            ),
+                            child: const SizedBox.expand(),
                           ),
-                        )
-                      else
-                        const ColoredBox(color: Colors.white),
-                      CustomPaint(
-                        painter: _FloorOverlayPainter(
-                          cad: cad,
-                          selectedRoom: _selectedRoom,
-                          hoveredRoom: _hoveredRoom,
-                        ),
-                        child: const SizedBox.expand(),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -223,6 +247,76 @@ class _FloorMapViewState extends State<FloorMapView> {
           ),
         );
       },
+    );
+  }
+
+  /// 底图图层：给白底 CAD 原图染上一层极淡的纸色；缺失/失败时改用图纸占位。
+  Widget _buildImageLayer(String? imagePath) {
+    if (imagePath == null) return _buildBlueprint();
+    return ColorFiltered(
+      colorFilter: const ColorFilter.mode(
+        Color(0xFFF3F8FD),
+        BlendMode.multiply,
+      ),
+      child: Image.file(
+        File(imagePath),
+        fit: BoxFit.fill,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => _buildBlueprint(loadFailed: true),
+      ),
+    );
+  }
+
+  /// 图纸占位：渐变 + 细网格 + 状态说明，不再是纯白一整片。
+  Widget _buildBlueprint({bool loadFailed = false}) {
+    final noImage = widget.floor.cadPath.isEmpty;
+    final message =
+        loadFailed ? '户型图加载失败' : (noImage ? '平台未上传该楼层户型图' : '户型图未下载成功');
+    final icon = loadFailed
+        ? Icons.broken_image_outlined
+        : (noImage
+            ? Icons.layers_clear_outlined
+            : Icons.image_not_supported_outlined);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [_blueprintTop, _blueprintBottom],
+            ),
+          ),
+        ),
+        const Positioned.fill(
+            child: CustomPaint(painter: _BlueprintGridPainter())),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 34, color: _accent.withValues(alpha: 0.85)),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _ink.withValues(alpha: 0.74),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '房间矢量仍可点选查看',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _subtle.withValues(alpha: 0.85),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -235,10 +329,41 @@ class _FloorMapViewState extends State<FloorMapView> {
         minScale: 0.5,
         maxScale: 8,
         boundaryMargin: const EdgeInsets.all(80),
-        child: Image.file(
-          File(imagePath),
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const Text('图片加载失败'),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _line),
+            boxShadow: [
+              BoxShadow(
+                color: _ink.withValues(alpha: 0.14),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.mode(
+              Color(0xFFF3F8FD),
+              BlendMode.multiply,
+            ),
+            child: Image.file(
+              File(imagePath),
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.broken_image_outlined,
+                        size: 32, color: _accent.withValues(alpha: 0.8)),
+                    const SizedBox(height: 8),
+                    const Text('图片加载失败'),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -246,32 +371,52 @@ class _FloorMapViewState extends State<FloorMapView> {
 
   Widget _buildPlaceholder() {
     final empty = widget.floor.cadPath.isEmpty;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            empty ? Icons.image_not_supported_outlined : Icons.broken_image_outlined,
-            size: 56,
-            color: Colors.grey.shade400,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const Positioned.fill(
+            child: CustomPaint(painter: _BlueprintGridPainter())),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                empty
+                    ? Icons.layers_clear_outlined
+                    : Icons.image_not_supported_outlined,
+                size: 38,
+                color: _accent.withValues(alpha: 0.85),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                empty ? '平台未上传该楼层户型图' : '户型图未下载成功',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _ink.withValues(alpha: 0.74),
+                ),
+              ),
+              if (empty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '该楼层仍按已完成统计',
+                  style: TextStyle(fontSize: 12, color: _subtle),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: SelectableText(
+                    'cadPath: ${widget.floor.cadPath}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: _subtle),
+                  ),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(empty ? '平台未上传该楼层户型图' : '户型图未下载成功'),
-          if (empty) ...[
-            const SizedBox(height: 6),
-            Text(
-              '该楼层仍按已完成统计',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ] else ...[
-            const SizedBox(height: 8),
-            SelectableText(
-              'cadPath: ${widget.floor.cadPath}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -291,71 +436,39 @@ class _FloorMapViewState extends State<FloorMapView> {
     );
   }
 
-  Widget _buildRoomCard(FloorCadData cad) {
+  /// 点选房间只留一行文字说明，没有卡片、底色块或关闭按钮。
+  Widget _buildRoomCaption(FloorCadData cad) {
     final index = _selectedRoom;
     if (index == null || index < 0 || index >= cad.rooms.length) {
       return const SizedBox.shrink();
     }
     final room = cad.rooms[index];
+    final parts = <String>[
+      if (room.no.isNotEmpty) room.no,
+      if (room.name.isNotEmpty) room.name,
+      if (room.area > 0) '${room.area.toStringAsFixed(1)} ㎡',
+      if (room.type.isNotEmpty) room.type,
+      if (room.dept.isNotEmpty) room.dept,
+    ];
+    if (parts.isEmpty) return const SizedBox.shrink();
     return Positioned(
       left: 16,
-      bottom: 16,
-      child: _GlassCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  room.no.isEmpty ? '房间' : room.no,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: _accent,
-                  ),
-                ),
-                if (room.area > 0) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '${room.area.toStringAsFixed(1)} ㎡',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _subtle.withValues(alpha: 0.82),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            if (room.name.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                room.name,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: _ink,
-                ),
-              ),
+      right: 210,
+      bottom: 15,
+      child: IgnorePointer(
+        child: Text(
+          parts.join(' · '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: _ink.withValues(alpha: 0.86),
+            shadows: const [
+              Shadow(color: Colors.white, blurRadius: 6),
+              Shadow(color: Colors.white, blurRadius: 3),
             ],
-            if (room.type.isNotEmpty || room.dept.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              SizedBox(
-                width: 250,
-                child: Text(
-                  [room.type, room.dept].where((e) => e.isNotEmpty).join(' · '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.4,
-                    color: _subtle.withValues(alpha: 0.82),
-                  ),
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -365,16 +478,25 @@ class _FloorMapViewState extends State<FloorMapView> {
     return Positioned(
       right: 16,
       bottom: 16,
-      child: Text(
-        '滚轮缩放 · 拖动平移 · 点击房间',
-        style: TextStyle(fontSize: 10, color: _subtle.withValues(alpha: 0.72)),
+      child: IgnorePointer(
+        child: Text(
+          '滚轮缩放 · 拖动平移 · 点击房间',
+          style: TextStyle(
+            fontSize: 10,
+            color: _subtle.withValues(alpha: 0.8),
+            shadows: const [
+              Shadow(color: Colors.white, blurRadius: 5),
+              Shadow(color: Colors.white, blurRadius: 2),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 房间矢量叠加绘制（多边形填充/描边 + 房间号标签）
+// 房间矢量叠加绘制（仅描边 + 纯文字房间号，无任何底色块）
 // ──────────────────────────────────────────────────────────────────────────────
 
 class _FloorOverlayPainter extends CustomPainter {
@@ -405,27 +527,27 @@ class _FloorOverlayPainter extends CustomPainter {
       final selected = i == selectedRoom;
       final hovered = i == hoveredRoom;
       final color = _roomColor(room);
-      // 底图透出：默认低不透明度，悬停/选中再加深。
-      final fillAlpha = selected ? 0.62 : (hovered ? 0.46 : 0.26);
-      canvas.drawPath(path, Paint()..color = color.withValues(alpha: fillAlpha));
-      canvas.drawPath(
-        path,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = (selected ? 2.6 : 1.2) / math.min(sx, sy)
-          ..color = selected
-              ? _selectedAccent
-              : color.withValues(alpha: hovered ? 0.95 : 0.8),
-      );
+      // 只描边、不填充：房间区域不再有任何色块，户型图完整透出。
       if (selected) {
         canvas.drawPath(
           path,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 8 / math.min(sx, sy)
-            ..color = _selectedAccent.withValues(alpha: 0.16),
+            ..strokeJoin = StrokeJoin.round
+            ..strokeWidth = 7 * unit
+            ..color = _selectedAccent.withValues(alpha: 0.18),
         );
       }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = (selected ? 3.0 : (hovered ? 2.0 : 1.0)) * unit
+          ..color = selected
+              ? _selectedAccent
+              : color.withValues(alpha: hovered ? 0.95 : 0.55),
+      );
     }
 
     for (var i = 0; i < rooms.length; i++) {
@@ -435,7 +557,8 @@ class _FloorOverlayPainter extends CustomPainter {
         sx,
         sy,
         unit,
-        selected: i == selectedRoom || i == hoveredRoom,
+        selected: i == selectedRoom,
+        hovered: i == hoveredRoom,
       );
     }
 
@@ -449,50 +572,59 @@ class _FloorOverlayPainter extends CustomPainter {
     double sy,
     double unit, {
     required bool selected,
+    required bool hovered,
   }) {
     if (!room.hasPolygon) return;
     final label = room.no.isNotEmpty ? room.no : room.name;
     if (label.isEmpty) return;
     final bounds = room.bounds;
-    final screenWidth = bounds.width * sx;
-    final screenHeight = bounds.height * sy;
-    if (!selected && (screenWidth < 28 || screenHeight < 16)) return;
+    final active = selected || hovered;
+    if (!active && (bounds.width * sx < 30 || bounds.height * sy < 18)) return;
 
-    final center = room.centroid;
-    final fontSize = (selected ? 13 : 11) / math.max(sx, 0.01);
-    final tp = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-          color: _ink,
+    final fontSize = (active ? 12.5 : 10.5) / math.max(sx, 0.01);
+    final color = selected
+        ? _selectedAccent
+        : (hovered ? _accent : _ink.withValues(alpha: 0.78));
+    final double maxWidth = math.max(bounds.width * 0.86, 1);
+
+    // 纯文字房间号：白色细描边代替原来的背景片，任何底图上都清晰。
+    TextPainter buildPainter({required bool outline}) {
+      return TextPainter(
+        text: TextSpan(
+          text: label,
+          style: outline
+              ? TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  foreground: Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeJoin = StrokeJoin.round
+                    ..strokeWidth = 2.4 * unit
+                    ..color = Colors.white.withValues(alpha: 0.92),
+                )
+              : TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: color,
+                ),
         ),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-      ellipsis: '…',
-    )..layout(maxWidth: math.max(bounds.width * 0.9, 1));
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: maxWidth);
+    }
 
-    // 半透明白色药丸底，保证房间号在底图之上清晰可读。
-    final padX = fontSize * 0.28;
-    final padY = fontSize * 0.14;
-    final rect = Rect.fromLTWH(
-      center.dx - tp.width / 2 - padX,
-      center.dy - tp.height / 2 - padY,
-      tp.width + padX * 2,
-      tp.height + padY * 2,
+    final fill = buildPainter(outline: false);
+    final origin = Offset(
+      room.centroid.dx - fill.width / 2,
+      room.centroid.dy - fill.height / 2,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(fontSize * 0.3)),
-      Paint()..color = Colors.white.withValues(alpha: selected ? 0.92 : 0.72),
-    );
-    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+    buildPainter(outline: true).paint(canvas, origin);
+    fill.paint(canvas, origin);
   }
 
   Path _path(List<Offset> points) {
-    final path = Path()
-      ..moveTo(points.first.dx, points.first.dy);
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
     for (var i = 1; i < points.length; i++) {
       path.lineTo(points[i].dx, points[i].dy);
     }
@@ -536,48 +668,53 @@ class _MapButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.94),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: _line),
-      ),
-      elevation: 2,
-      shadowColor: const Color(0xFF0F172A).withValues(alpha: 0.16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(7),
-          child: Icon(icon, size: 17, color: const Color(0xFF475569)),
-        ),
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18, color: _ink.withValues(alpha: 0.62)),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
 }
 
-class _GlassCard extends StatelessWidget {
-  const _GlassCard({required this.child});
-
-  final Widget child;
+/// 图纸网格：细线 + 每 5 格一条主线，给空白底图一点结构感。
+class _BlueprintGridPainter extends CustomPainter {
+  const _BlueprintGridPainter();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 16, 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _accent.withValues(alpha: 0.20)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.14),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: child,
-    );
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final minor = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7
+      ..color = _accent.withValues(alpha: 0.07);
+    final major = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9
+      ..color = _accent.withValues(alpha: 0.13);
+    const step = 28.0;
+    var column = 0;
+    for (var x = 0.0; x <= size.width; x += step, column++) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        column % 5 == 0 ? major : minor,
+      );
+    }
+    var row = 0;
+    for (var y = 0.0; y <= size.height; y += step, row++) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        row % 5 == 0 ? major : minor,
+      );
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _BlueprintGridPainter oldDelegate) => false;
 }

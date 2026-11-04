@@ -1316,10 +1316,7 @@ class _FloorPageState extends State<FloorPage> {
           ),
           const Divider(height: 1),
           Expanded(
-            child: ColoredBox(
-              color: Colors.grey.shade100,
-              child: FloorMapView(key: ValueKey('map-${floor.id}'), floor: floor),
-            ),
+            child: FloorMapView(key: ValueKey('map-${floor.id}'), floor: floor),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
@@ -1339,19 +1336,63 @@ class _FloorPageState extends State<FloorPage> {
   Widget _previewPlaceholder({required IconData icon, required String text}) {
     return Card(
       margin: EdgeInsets.zero,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 56, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text(
-              text,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFF4F9FD), Color(0xFFE2EDF6)],
+              ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            right: -70,
+            top: -70,
+            child: _placeholderHalo(230, 0.05),
+          ),
+          Positioned(
+            left: -60,
+            bottom: -90,
+            child: _placeholderHalo(280, 0.04),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 40,
+                  color: const Color(0xFF0891B2).withValues(alpha: 0.85),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.6,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholderHalo(double size, double opacity) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFF38BDF8).withValues(alpha: opacity),
       ),
     );
   }
