@@ -50,7 +50,8 @@ cp ftp_config.example.yaml ftp_config.yaml
    期间显示楼栋/楼层进度，可点击「停止批量爬取」在当前楼层结束后停止；
 7. 楼层预览以「户型图原图」作为底图图层，叠加各层 `details/{floorId}.json` 中
    `statisticsRoomVo.cadIdentifyData` 提供的房间矢量多边形与房间号：房间只描边不填充、
-   房间号为纯文字（白色细描边保证可读），不叠加任何底色块或卡片；滚轮缩放、拖动平移，
+   房间号为纯文字（白色细描边保证可读），竖长房间的房间号逐字竖排，
+   不叠加任何底色块或卡片；滚轮缩放、拖动平移，
    点击房间后仅以左下角一行文字显示房间号/名称/面积/类型/部门。
    房间多边形按 `cadIdentifyData.size` 建立 CAD 盒子、底图 `BoxFit.fill` 铺底，二者像素级对齐，
    字段口径与 maintenance 后端一致（`no=roomNo`、`area=useArea`、`type=roomTypeName`、`dept=baseDepName`）。

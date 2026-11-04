@@ -19,6 +19,24 @@ const Color _canvasBottom = Color(0xFFE2EDF6);
 const Color _blueprintTop = Color(0xFFEFF6FC);
 const Color _blueprintBottom = Color(0xFFDFEAF5);
 
+// 房间号字号（屏幕像素，绘制时会按 CAD 缩放换算回来）与白色描边宽度。
+// 调这三个值即可整体改变叠在房间上的文字大小。
+const double _roomLabelFontSize = 5.0;
+const double _roomLabelActiveFontSize = 6.0;
+const double _roomLabelOutlineWidth = 0.9;
+
+/// 房间号是否逐字竖排：只由房间在屏幕上的形状与文字长度决定，
+/// 与悬停/选中状态无关，避免 hover 时横竖跳变。
+bool shouldStackRoomLabel({
+  required double screenWidth,
+  required double screenHeight,
+  required int charCount,
+  double fontSize = _roomLabelFontSize,
+}) {
+  return screenHeight >= screenWidth * 1.5 &&
+      screenHeight >= fontSize * 1.15 * charCount + 6;
+}
+
 /// 楼层预览合成控件：底图（户型图原图）+ 房间矢量叠加层 + 点选文字说明。
 ///
 /// - 底图图层：[FloorInfo.imagePath] 指向的 PNG/JPEG，用 `BoxFit.fill` 铺满 CAD 盒子；
@@ -578,20 +596,39 @@ class _FloorOverlayPainter extends CustomPainter {
     final label = room.no.isNotEmpty ? room.no : room.name;
     if (label.isEmpty) return;
     final bounds = room.bounds;
-    final active = selected || hovered;
-    if (!active && (bounds.width * sx < 30 || bounds.height * sy < 18)) return;
+    final screenWidth = bounds.width * sx;
+    final screenHeight = bounds.height * sy;
+    final chars = label.runes.map((r) => String.fromCharCode(r)).toList();
 
-    final fontSize = (active ? 12.5 : 10.5) / math.max(sx, 0.01);
+    // 横竖排、是否显示都只由房间形状决定，绝不能随悬停/选中变化，
+    // 否则像「109」这种刚卡在高度边界的窄长房间 hover 后会突然变横排。
+    final vertical = shouldStackRoomLabel(
+      screenWidth: screenWidth,
+      screenHeight: screenHeight,
+      charCount: chars.length,
+    );
+    if (!vertical && (screenWidth < 30 || screenHeight < 18)) return;
+
+    final active = selected || hovered;
+    // 竖排时字号固定，hover 只换颜色与字重，避免行距变化把竖排挤出去。
+    final screenFont = vertical
+        ? _roomLabelFontSize
+        : (active ? _roomLabelActiveFontSize : _roomLabelFontSize);
+    final fontSize = screenFont / math.max(sx, 0.01);
     final color = selected
         ? _selectedAccent
         : (hovered ? _accent : _ink.withValues(alpha: 0.78));
     final double maxWidth = math.max(bounds.width * 0.86, 1);
 
     // 纯文字房间号：白色细描边代替原来的背景片，任何底图上都清晰。
-    TextPainter buildPainter({required bool outline}) {
+    TextPainter buildPainter(
+      String text, {
+      required bool outline,
+      double? width,
+    }) {
       return TextPainter(
         text: TextSpan(
-          text: label,
+          text: text,
           style: outline
               ? TextStyle(
                   fontSize: fontSize,
@@ -599,7 +636,7 @@ class _FloorOverlayPainter extends CustomPainter {
                   foreground: Paint()
                     ..style = PaintingStyle.stroke
                     ..strokeJoin = StrokeJoin.round
-                    ..strokeWidth = 2.4 * unit
+                    ..strokeWidth = _roomLabelOutlineWidth * unit
                     ..color = Colors.white.withValues(alpha: 0.92),
                 )
               : TextStyle(
@@ -611,15 +648,28 @@ class _FloorOverlayPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
-      )..layout(maxWidth: maxWidth);
+      )..layout(maxWidth: width ?? double.infinity);
     }
 
-    final fill = buildPainter(outline: false);
+    if (vertical) {
+      final lineHeight = fontSize * 1.15;
+      var y = room.centroid.dy - lineHeight * chars.length / 2;
+      for (final ch in chars) {
+        final fill = buildPainter(ch, outline: false);
+        final x = room.centroid.dx - fill.width / 2;
+        buildPainter(ch, outline: true).paint(canvas, Offset(x, y));
+        fill.paint(canvas, Offset(x, y));
+        y += lineHeight;
+      }
+      return;
+    }
+
+    final fill = buildPainter(label, outline: false, width: maxWidth);
     final origin = Offset(
       room.centroid.dx - fill.width / 2,
       room.centroid.dy - fill.height / 2,
     );
-    buildPainter(outline: true).paint(canvas, origin);
+    buildPainter(label, outline: true, width: maxWidth).paint(canvas, origin);
     fill.paint(canvas, origin);
   }
 
