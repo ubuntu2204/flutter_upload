@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'building_photo_action.dart';
+
 /// 楼层数据接口前缀（页面 origin 之后的部分）。
 const String _apiPrefix = '/api/house-base';
 
@@ -205,6 +207,9 @@ class FloorCrawlResult {
   final String manifestPath;
   final DateTime crawledAt;
 
+  /// 该楼采集的楼外观照片（每栋一张）；未采集为 null。
+  final String? buildingPhotoPath;
+
   const FloorCrawlResult({
     required this.sourceUrl,
     required this.origin,
@@ -216,6 +221,7 @@ class FloorCrawlResult {
     required this.outputDir,
     required this.manifestPath,
     required this.crawledAt,
+    this.buildingPhotoPath,
   });
 }
 
@@ -415,6 +421,7 @@ class FloorCrawler {
       'campusId': context.campusId,
       'campusName': context.campusName,
       'crawledAt': DateTime.now().toIso8601String(),
+      'buildingPhoto': await BuildingPhotoStore.relative(dir.path),
       'floors': floors
           .map((f) => {
                 'id': f.id,
@@ -450,6 +457,7 @@ class FloorCrawler {
       outputDir: dir.path,
       manifestPath: manifestFile.path,
       crawledAt: DateTime.now(),
+      buildingPhotoPath: await BuildingPhotoStore.resolve(dir.path),
     );
   }
 

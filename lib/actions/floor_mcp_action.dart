@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'building_photo_action.dart';
 import 'chrome_launcher.dart';
 import 'floor_action.dart';
 import 'mcp_client.dart';
@@ -180,6 +181,7 @@ class ChromeFloorCrawler {
       'buildingId': building.id,
       'buildingName': building.name,
       'crawledAt': DateTime.now().toIso8601String(),
+      'buildingPhoto': await BuildingPhotoStore.relative(dir.path),
       'floors': infos
           .map((f) => {
                 'id': f.id,
@@ -215,6 +217,7 @@ class ChromeFloorCrawler {
       outputDir: dir.path,
       manifestPath: manifestFile.path,
       crawledAt: DateTime.now(),
+      buildingPhotoPath: await BuildingPhotoStore.resolve(dir.path),
     );
   }
 

@@ -54,6 +54,10 @@ void main() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
+    // 桌面应用窗口远大于测试默认 800x600，放大避免固定日志区挤压内容。
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1.0;
+
     await tester.pumpWidget(
       MaterialApp(
         home: FloorPage(
@@ -67,6 +71,8 @@ void main() {
     expect(find.text('启动登录 Chrome'), findsOneWidget);
     expect(find.text('加载楼栋'), findsOneWidget);
     expect(find.text('爬取当前楼栋'), findsOneWidget);
+    expect(find.text('采集楼照片'), findsOneWidget);
+    expect(find.text('批量导入楼照片'), findsOneWidget);
     // 重构后移除 vtracer「切换矢量」按钮，预览改为「底图 + 房间矢量叠加」。
     expect(find.text('切换矢量'), findsNothing);
     expect(find.byTooltip('打开输出目录'), findsOneWidget);
