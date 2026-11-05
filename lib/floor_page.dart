@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'actions/building_info_action.dart';
 import 'actions/building_photo_action.dart';
 import 'actions/chrome_launcher.dart';
 import 'actions/floor_action.dart';
@@ -52,8 +53,14 @@ class _FloorPageState extends State<FloorPage> {
   /// 每栋楼采集的楼照片路径（buildingId → 本地文件；null 表示未采集）。
   Map<String, String?> _buildingPhotos = {};
 
+  /// 每栋楼从平台采集的简介（使用单位数 / 建筑面积 / 使用面积等）。
+  Map<String, BuildingInfo?> _buildingInfos = {};
+
   /// 照片被覆盖时递增，编进 Image 的 key 强制重新读盘，避免 Flutter 图片缓存。
   int _photoVersion = 0;
+
+  bool _collectingInfo = false;
+  bool _cancelCollect = false;
 
   List<FloorInfo> _floors = const [];
   FloorCrawlResult? _result;
@@ -103,6 +110,7 @@ class _FloorPageState extends State<FloorPage> {
     _statuses = {};
     _localResults = {};
     _buildingPhotos = {};
+    _buildingInfos = {};
     _result = null;
     _statusLoading = false;
     if (_campuses.isNotEmpty) {
@@ -140,6 +148,9 @@ class _FloorPageState extends State<FloorPage> {
   }
 
   String get _progressText {
+    if (_collectingInfo) {
+      return '正在采集楼照片与简介 $_crawlDone / $_crawlTotal 栋';
+    }
     if (_crawlAll) {
       if (_crawlAllIndex == 0) return '准备批量爬取...';
       return '批量爬取 $_crawlAllIndex/$_crawlAllTotal：'
@@ -154,6 +165,11 @@ class _FloorPageState extends State<FloorPage> {
   String? get _currentBuildingPhoto {
     final building = _building;
     return building == null ? null : _buildingPhotos[building.id];
+  }
+
+  BuildingInfo? get _currentBuildingInfo {
+    final building = _building;
+    return building == null ? null : _buildingInfos[building.id];
   }
 
   T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T) test) {
@@ -263,6 +279,7 @@ class _FloorPageState extends State<FloorPage> {
       _statuses = {};
       _localResults = {};
       _buildingPhotos = {};
+      _buildingInfos = {};
     });
   }
 
@@ -349,6 +366,7 @@ class _FloorPageState extends State<FloorPage> {
       _statuses = {};
       _localResults = {};
       _buildingPhotos = {};
+      _buildingInfos = {};
     });
     unawaited(_refreshLocalData());
   }
@@ -385,6 +403,7 @@ class _FloorPageState extends State<FloorPage> {
     final results = <String, FloorCrawlResult?>{};
     final statuses = <String, BuildingStatus>{};
     final photos = <String, String?>{};
+    final infos = <String, BuildingInfo?>{};
     for (final building in campus.children) {
       final result = await _readLocalResult(campus, building);
       results[building.id] = result;
@@ -392,12 +411,15 @@ class _FloorPageState extends State<FloorPage> {
           BuildingStatus.fromResult(building.children.length, result);
       photos[building.id] = results[building.id]?.buildingPhotoPath ??
           await BuildingPhotoStore.resolve(_buildingDir(building));
+      infos[building.id] =
+          await BuildingPhotoStore.readInfo(_buildingDir(building));
     }
     if (!mounted || version != _localDataVersion) return;
     setState(() {
       _localResults = results;
       _statuses = statuses;
       _buildingPhotos = photos;
+      _buildingInfos = infos;
       _statusLoading = false;
     });
 
@@ -509,32 +531,6 @@ class _FloorPageState extends State<FloorPage> {
     return '$base/$path';
   }
 
-  /// 用 zenity 选择图片文件或照片目录；取消 / 失败返回 null。
-  Future<String?> _pickPhotoPath({
-    required bool directory,
-    required String title,
-  }) async {
-    try {
-      final result = await Process.run(
-        'zenity',
-        [
-          '--file-selection',
-          if (directory) '--directory',
-          '--title=$title',
-          if (!directory) '--file-filter=图片文件 | *.png *.jpg *.jpeg *.gif *.webp',
-          if (!directory) '--file-filter=所有文件 | *',
-        ],
-        workingDirectory: _safeWorkingDirectory(),
-      );
-      if (result.exitCode != 0) return null;
-      final path = result.stdout.toString().trim();
-      return path.isEmpty ? null : path;
-    } catch (e) {
-      _addLog('打开文件选择器失败: $e\n');
-      return null;
-    }
-  }
-
   Future<Map<String, String?>> _loadBuildingPhotos(
       List<FloorNode> buildings) async {
     final photos = <String, String?>{};
@@ -543,6 +539,16 @@ class _FloorPageState extends State<FloorPage> {
           await BuildingPhotoStore.resolve(_buildingDir(building));
     }
     return photos;
+  }
+
+  Future<Map<String, BuildingInfo?>> _loadBuildingInfos(
+      List<FloorNode> buildings) async {
+    final infos = <String, BuildingInfo?>{};
+    for (final building in buildings) {
+      infos[building.id] =
+          await BuildingPhotoStore.readInfo(_buildingDir(building));
+    }
+    return infos;
   }
 
   /// 更新某栋楼的照片状态；清掉图片缓存并递增版本，保证替换后立刻刷新。
@@ -557,26 +563,37 @@ class _FloorPageState extends State<FloorPage> {
     });
   }
 
-  /// 为当前楼栋采集（或替换）一张楼照片。
-  Future<void> _captureBuildingPhoto() async {
+  /// 从平台重新采集当前楼的照片与简介。
+  Future<void> _recaptureCurrentBuilding() async {
+    final campus = _campus;
     final building = _building;
-    if (building == null || _busy) return;
-    final source = await _pickPhotoPath(
-      directory: false,
-      title: '选择「${building.name}」的楼照片',
-    );
-    if (source == null || !mounted) return;
+    if (campus == null || building == null || _busy) return;
     setState(() => _busy = true);
+    _addLog('--- 重新采集 ${building.name} 楼照片与简介 ---');
     try {
-      final path = await BuildingPhotoStore.importFile(
-        buildingDir: _buildingDir(building),
-        sourcePath: source,
+      final session = await _ensureSession();
+      final crawler = BuildingInfoCrawler(session: session, addLog: _addLog);
+      final info = await crawler.collectBuilding(
+        campus: campus,
+        building: building,
+        outputDir: _outputController.text.trim(),
       );
+      final path = await BuildingPhotoStore.resolve(_buildingDir(building));
       await _setBuildingPhoto(building.id, path);
-      _addLog('已采集 ${building.name} 的楼照片: $path\n');
+      if (!mounted) return;
+      setState(() => _buildingInfos[building.id] = info);
+      _addLog('已重新采集 ${building.name}：${info?.statsLine ?? '无简介'}\n');
     } catch (e) {
-      _addLog('采集楼照片失败: $e\n');
-      _showError('采集楼照片失败', e);
+      final text = e.toString();
+      final needLogin = text.contains('401') || text.contains('登录态');
+      if (!needLogin) await _resetSession();
+      if (mounted) {
+        setState(() => _chromeState = needLogin
+            ? _ChromeState.waitingLogin
+            : _ChromeState.error);
+      }
+      _addLog('重新采集失败: $text\n');
+      if (!needLogin) _showError('重新采集失败', e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -617,78 +634,102 @@ class _FloorPageState extends State<FloorPage> {
     }
   }
 
-  /// 从目录按楼名 / 楼 ID 批量采集当前校区所有楼的照片。
-  Future<void> _batchImportBuildingPhotos() async {
+  /// 从平台批量采集当前校区每栋楼的一张照片与简介，可中途停止。
+  Future<void> _collectCampusInfo() async {
     final campus = _campus;
     if (campus == null || _busy || campus.children.isEmpty) return;
-    final confirmed = await showDialog<bool>(
+    final mode = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('批量采集楼照片'),
-        content: const Text(
-          '选择存放楼照片的目录：\n'
-          '照片文件名与楼名一致即可自动匹配（重名楼请带楼 ID），\n'
-          '支持 PNG / JPEG / GIF / WebP，每栋楼只保留一张。\n'
-          '已有照片的楼默认跳过，可在单栋采集时替换。',
+        title: const Text('采集楼照片与简介'),
+        content: Text(
+          '复用已登录的 Chrome 会话，从平台读取 '
+          '${campus.name} ${campus.children.length} 栋楼：\n'
+          '每栋取平台第一张楼照片，并保存使用单位数、建筑面积、'
+          '使用面积与文字简介。\n'
+          '「仅补采缺失」会跳过已采集过的楼。',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'all'),
+            child: const Text('全部重新采集'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('选择目录'),
+            onPressed: () => Navigator.pop(dialogContext, 'missing'),
+            child: const Text('仅补采缺失'),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    final sourceDir = await _pickPhotoPath(
-      directory: true,
-      title: '选择楼照片目录',
-    );
-    if (sourceDir == null || !mounted) return;
-    setState(() => _busy = true);
-    _addLog('--- 批量采集楼照片：$sourceDir ---');
+    if (mode == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _crawling = true;
+      _collectingInfo = true;
+      _cancelCollect = false;
+      _crawlDone = 0;
+      _crawlTotal = campus.children.length;
+      _showBuildingList = true;
+    });
+    _addLog('--- 采集 ${campus.name} 楼照片与简介'
+        '（${mode == 'all' ? '全部重采' : '仅补缺'}）---');
     try {
-      final entries = campus.children
-          .map((b) => BuildingPhotoEntry(
-                building: BuildingPhotoBuilding(id: b.id, name: b.name),
-                dir: _buildingDir(b),
-              ))
-          .toList();
-      final result = await BuildingPhotoStore.importBatch(
-        entries: entries,
-        sourceDir: sourceDir,
+      final session = await _ensureSession();
+      final crawler = BuildingInfoCrawler(session: session, addLog: _addLog);
+      final result = await crawler.collectCampus(
+        campus: campus,
+        outputDir: _outputController.text.trim(),
+        onlyMissing: mode != 'all',
+        shouldStop: () => _cancelCollect,
+        onProgress: (done, total, _) {
+          if (!mounted) return;
+          setState(() {
+            _crawlDone = done;
+            _crawlTotal = total;
+          });
+        },
       );
       final photos = await _loadBuildingPhotos(campus.children);
+      final infos = await _loadBuildingInfos(campus.children);
       if (!mounted) return;
       setState(() {
         _buildingPhotos = photos;
+        _buildingInfos = infos;
         _photoVersion++;
       });
-      _addLog('批量采集完成：${result.summary}\n');
-      if (result.unmatchedBuildings.isNotEmpty) {
-        _addLog('未匹配到照片的楼（前 10）：'
-            '${result.unmatchedBuildings.take(10).join('、')}\n');
-      }
-      if (result.ambiguousBuildings.isNotEmpty) {
-        _addLog('匹配到多张照片、需用楼 ID 命名的楼：'
-            '${result.ambiguousBuildings.take(10).join('、')}\n');
-      }
-      if (result.unmatchedFiles.isNotEmpty) {
-        _addLog('未被使用的照片（前 10）：'
-            '${result.unmatchedFiles.take(10).join('、')}\n');
+      _addLog('楼照片与简介采集完成：${result.summary}\n');
+      if (result.failures.isNotEmpty) {
+        _addLog('未采集成功（前 10）：'
+            '${result.failures.take(10).join('；')}\n');
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.summary)),
       );
+      await widget.onOutputDirSaved(_outputController.text.trim());
     } catch (e) {
-      _addLog('批量采集楼照片失败: $e\n');
-      _showError('批量采集楼照片失败', e);
+      final text = e.toString();
+      final needLogin = text.contains('401') || text.contains('登录态');
+      if (!needLogin) await _resetSession();
+      if (mounted) {
+        setState(() => _chromeState = needLogin
+            ? _ChromeState.waitingLogin
+            : _ChromeState.error);
+      }
+      _addLog('采集楼照片与简介失败: $text\n');
+      if (!needLogin) _showError('采集楼照片与简介失败', e);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _crawling = false;
+          _collectingInfo = false;
+          _cancelCollect = false;
+        });
+      }
     }
   }
 
@@ -1146,21 +1187,29 @@ class _FloorPageState extends State<FloorPage> {
                     label: Text(_cancelCrawlAll ? '正在停止...' : '停止批量爬取'),
                   ),
                 OutlinedButton.icon(
-                  onPressed: (_busy || _building == null)
-                      ? null
-                      : _captureBuildingPhoto,
-                  icon: const Icon(Icons.add_a_photo_outlined),
-                  label: Text(_currentBuildingPhoto == null
-                      ? '采集楼照片'
-                      : '更换楼照片'),
-                ),
-                OutlinedButton.icon(
                   onPressed: (_busy || _campuses.isEmpty)
                       ? null
-                      : _batchImportBuildingPhotos,
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('批量导入楼照片'),
+                      : _collectCampusInfo,
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: Text(_collectingInfo
+                      ? '采集中 $_crawlDone/$_crawlTotal'
+                      : '采集楼照片与简介'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: (_busy || _building == null || _campuses.isEmpty)
+                      ? null
+                      : _recaptureCurrentBuilding,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新采集当前楼'),
+                ),
+                if (_collectingInfo)
+                  OutlinedButton.icon(
+                    onPressed: _cancelCollect
+                        ? null
+                        : () => setState(() => _cancelCollect = true),
+                    icon: const Icon(Icons.stop),
+                    label: Text(_cancelCollect ? '正在停止...' : '停止采集'),
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -1588,6 +1637,7 @@ class _FloorPageState extends State<FloorPage> {
   Widget _buildBuildingPhotoPreview() {
     final building = _building;
     final path = _currentBuildingPhoto;
+    final info = _currentBuildingInfo;
     final captured =
         _buildings.where((b) => _buildingPhotos[b.id] != null).length;
     return Card(
@@ -1605,7 +1655,7 @@ class _FloorPageState extends State<FloorPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '楼照片 · ${building?.name ?? '未选择楼宇'}',
+                        '楼照片与简介 · ${building?.name ?? '未选择楼宇'}',
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.bold),
                       ),
@@ -1621,9 +1671,9 @@ class _FloorPageState extends State<FloorPage> {
                 IconButton(
                   onPressed: (_busy || building == null)
                       ? null
-                      : _captureBuildingPhoto,
-                  icon: const Icon(Icons.add_a_photo_outlined),
-                  tooltip: path == null ? '采集楼照片' : '更换楼照片',
+                      : _recaptureCurrentBuilding,
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  tooltip: '从平台重新采集当前楼的照片与简介',
                 ),
                 if (path != null) ...[
                   IconButton(
@@ -1645,9 +1695,9 @@ class _FloorPageState extends State<FloorPage> {
             child: path == null
                 ? _previewPlaceholder(
                     icon: Icons.apartment,
-                    text: '「${building?.name ?? '当前楼宇'}」尚未采集楼照片\n'
-                        '点击「采集楼照片」选择该楼外观图片，\n'
-                        '或用「批量导入楼照片」按楼名自动匹配',
+                    text: '「${building?.name ?? '当前楼宇'}」尚未采集\n'
+                        '点击「采集楼照片与简介」从平台批量采集，\n'
+                        '或点右上角按钮只重新采集当前楼',
                   )
                 : ColoredBox(
                     color: Colors.grey.shade200,
@@ -1661,13 +1711,38 @@ class _FloorPageState extends State<FloorPage> {
                     ),
                   ),
           ),
-          if (path != null)
+          if (info != null || path != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-              child: SelectableText(
-                '本地文件: $path',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                maxLines: 2,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (info != null) ...[
+                    Text(
+                      info.statsLine,
+                      style: const TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                    if (info.description.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        info.description,
+                        maxLines: 3,
+                        style: TextStyle(
+                            fontSize: 11.5, color: Colors.grey.shade700),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                  ],
+                  if (path != null)
+                    SelectableText(
+                      '本地文件: $path',
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                      maxLines: 2,
+                    ),
+                ],
               ),
             ),
         ],
