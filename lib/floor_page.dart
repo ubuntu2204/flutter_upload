@@ -44,6 +44,9 @@ class _FloorPageState extends State<FloorPage> {
   int _campusKeyVersion = 0;
 
   bool _showBuildingList = true;
+
+  /// 已进入楼层列表时，右侧预览切到「楼照片与简介」（false=楼层户型图）。
+  bool _showBuildingInfoView = false;
   String _buildingFilter = '';
   Map<String, BuildingStatus> _statuses = {};
   Map<String, FloorCrawlResult?> _localResults = {};
@@ -388,6 +391,7 @@ class _FloorPageState extends State<FloorPage> {
     setState(() {
       _buildingId = buildingId;
       _showBuildingList = false;
+      _showBuildingInfoView = false;
       _result = local;
       _floors = local?.floors ?? _placeholderFloors(campus, building);
       _selectedIndex = defaultFloorSelectionIndex(_floors);
@@ -762,6 +766,7 @@ class _FloorPageState extends State<FloorPage> {
       _crawlDone = 0;
       _crawlTotal = building.children.length;
       _result = null;
+      _showBuildingInfoView = false;
     });
     _addLog('--- 爬取 ${building.name} ---');
     try {
@@ -880,6 +885,7 @@ class _FloorPageState extends State<FloorPage> {
       _crawlTotal = 0;
       _result = null;
       _showBuildingList = false;
+      _showBuildingInfoView = false;
     });
     _addLog('--- 批量爬取未完成：${pending.length} 栋 / $totalFloors 层 ---');
 
@@ -1187,6 +1193,11 @@ class _FloorPageState extends State<FloorPage> {
                     label: Text(_cancelCrawlAll ? '正在停止...' : '停止批量爬取'),
                   ),
                 OutlinedButton.icon(
+                  onPressed: _building == null ? null : _showBuildingInfoDialog,
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('查看楼照片与简介'),
+                ),
+                OutlinedButton.icon(
                   onPressed: (_busy || _campuses.isEmpty)
                       ? null
                       : _collectCampusInfo,
@@ -1364,7 +1375,31 @@ class _FloorPageState extends State<FloorPage> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12),
                         ),
-                        trailing: _statusBadge(status),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() {
+                                        _buildingId = building.id;
+                                        _showBuildingInfoView = false;
+                                      }),
+                              icon: Icon(
+                                photoPath != null
+                                    ? Icons.photo_camera_outlined
+                                    : Icons.info_outline,
+                                size: 18,
+                                color: photoPath != null
+                                    ? Colors.green
+                                    : Colors.grey,
+                              ),
+                              tooltip: '查看「${building.name}」的楼照片与简介',
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            _statusBadge(status),
+                          ],
+                        ),
                         onTap:
                             _busy ? null : () => _selectBuilding(building.id),
                       );
@@ -1465,6 +1500,13 @@ class _FloorPageState extends State<FloorPage> {
                   tooltip: '返回楼宇列表',
                   visualDensity: VisualDensity.compact,
                 ),
+                IconButton(
+                  onPressed: () =>
+                      setState(() => _showBuildingInfoView = true),
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  tooltip: '查看当前楼照片与简介',
+                  visualDensity: VisualDensity.compact,
+                ),
                 Expanded(
                   child: Text(
                     building == null
@@ -1539,7 +1581,10 @@ class _FloorPageState extends State<FloorPage> {
                         ),
                         onTap: _busy
                             ? null
-                            : () => setState(() => _selectedIndex = index),
+                            : () => setState(() {
+                                  _selectedIndex = index;
+                                  _showBuildingInfoView = false;
+                                }),
                       );
                     },
                   ),
@@ -1550,7 +1595,7 @@ class _FloorPageState extends State<FloorPage> {
   }
 
   Widget _buildPreview() {
-    if (_showBuildingList) {
+    if (_showBuildingList || _showBuildingInfoView) {
       return _buildBuildingPhotoPreview();
     }
     final result = _result;
@@ -1607,6 +1652,12 @@ class _FloorPageState extends State<FloorPage> {
                     tooltip: '打开户型图原图',
                   ),
                 IconButton(
+                  onPressed: () =>
+                      setState(() => _showBuildingInfoView = true),
+                  icon: const Icon(Icons.apartment_outlined),
+                  tooltip: '查看楼照片与简介',
+                ),
+                IconButton(
                   onPressed: () => _openDirectory(result.outputDir),
                   icon: const Icon(Icons.folder),
                   tooltip: '打开楼层目录',
@@ -1627,6 +1678,93 @@ class _FloorPageState extends State<FloorPage> {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
               maxLines: 2,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 随时可打开的楼照片与简介弹窗，不依赖当前处于哪个预览视图。
+  Future<void> _showBuildingInfoDialog() async {
+    final building = _building;
+    if (building == null) return;
+    final path = _currentBuildingPhoto;
+    final info = _currentBuildingInfo;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${building.name} · 楼照片与简介'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (path != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(path),
+                      key: ValueKey('dialog-$path#$_photoVersion'),
+                      height: 260,
+                      width: double.infinity,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const SizedBox(
+                        height: 80,
+                        child: Center(child: Text('楼照片无法显示')),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    height: 120,
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('尚未采集楼照片'),
+                  ),
+                const SizedBox(height: 12),
+                if (info != null) ...[
+                  Text(
+                    info.statsLine,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  if (info.description.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      info.description,
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade800),
+                    ),
+                  ],
+                ] else
+                  const Text('尚未采集平台简介，可点击「采集楼照片与简介」'),
+                if (path != null) ...[
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    '本地文件: $path',
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          if (path != null)
+            TextButton(
+              onPressed: () => _openFile(path),
+              child: const Text('打开原图'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
           ),
         ],
       ),
@@ -1668,6 +1806,13 @@ class _FloorPageState extends State<FloorPage> {
                     ],
                   ),
                 ),
+                if (!_showBuildingList && _showBuildingInfoView)
+                  IconButton(
+                    onPressed: () =>
+                        setState(() => _showBuildingInfoView = false),
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: '返回楼层预览',
+                  ),
                 IconButton(
                   onPressed: (_busy || building == null)
                       ? null
